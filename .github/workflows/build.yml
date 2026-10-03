@@ -30,7 +30,13 @@ jobs:
           global-json-file: global.json
 
       - name: Restore locked dependencies
-        run: dotnet restore $env:PROJECT --locked-mode -p:Platform=x64
+        run: |
+          dotnet restore $env:PROJECT --locked-mode -p:Platform=x64
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet restore tests/Contracts/Contracts.csproj --locked-mode
+
+      - name: Verify history races and real JPEG encoder
+        run: dotnet run --project tests/Contracts/Contracts.csproj --framework net10.0-windows10.0.26100.0 --configuration Release --no-restore
 
       - name: Build Release
         run: dotnet build $env:PROJECT --configuration Release --no-restore -p:Platform=x64

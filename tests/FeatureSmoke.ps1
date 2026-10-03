@@ -18,6 +18,7 @@ public static class DesktopNative {
     [DllImport("user32.dll")] public static extern bool GetMonitorInfo(IntPtr handle, ref Monitor monitor);
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr handle, out Rect rect);
     [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr handle);
+    [DllImport("user32.dll")] public static extern uint GetClipboardSequenceNumber();
     [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr handle, IntPtr after, int x, int y, int width, int height, uint flags);
 }
 '@
@@ -96,6 +97,42 @@ function Stop-Monitoring {
     Invoke-Control (Find-Control 'StopButton')
     Wait-For { (Find-Control 'MonitoringStatus').Current.Name -eq 'Stopped' } 'stopped state'
 }
+function Set-Quality([double]$Quality) {
+    ([System.Windows.Automation.RangeValuePattern](Find-Control 'JpegQuality').GetCurrentPattern(
+        [System.Windows.Automation.RangeValuePattern]::Pattern)).SetValue($Quality)
+}
+function Assert-EmptyHistory {
+    Wait-For {
+        $null -eq (Find-Control 'PreviewImage') -and
+        $null -ne (Find-Name $root 'No images saved yet') -and
+        $null -ne (Find-Name $root 'Saved images and failures from this session will be listed here.') -and
+        (Find-Control 'PreviewCaption').Current.Name -eq 'The preview updates after an image has been saved.' -and
+        $null -eq (Find-Name (Find-Control 'HistoryList') 'Saved') -and
+        $null -eq (Find-Name (Find-Control 'HistoryList') 'Failed')
+    } 'cleared history, preview and empty guidance'
+    $texts = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+        [System.Windows.Automation.PropertyCondition]::new(
+            [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+            [System.Windows.Automation.ControlType]::Text))
+    $names = ($texts | ForEach-Object { $_.Current.Name }) -join ' | '
+    if ($names.Contains('Clipboard_') -or $names.Contains('Exception:') -or $names.Contains('Image saved') -or $names.Contains('Save failed')) {
+        throw "Old file captions or save messages remain after Clear: $names"
+    }
+}
+function Clear-History {
+    $status = (Find-Control 'MonitoringStatus').Current.Name
+    $sequence = [DesktopNative]::GetClipboardSequenceNumber()
+    $before = @(Get-ChildItem $testFolder -File | ForEach-Object { (Get-FileHash $_.FullName).Hash }) -join ','
+    $button = Find-Control 'ClearHistoryButton'
+    if (-not $button.Current.IsEnabled) { throw 'Clear History is disabled.' }
+    if (-not $button.Current.HelpText.Contains('Saved files are kept')) { throw 'Clear History does not explain file retention.' }
+    Invoke-Control $button
+    Assert-EmptyHistory
+    if ((Find-Control 'MonitoringStatus').Current.Name -ne $status) { throw 'Clear changed the monitoring state.' }
+    if ([DesktopNative]::GetClipboardSequenceNumber() -ne $sequence) { throw 'Clear modified the Windows clipboard.' }
+    $after = @(Get-ChildItem $testFolder -File | ForEach-Object { (Get-FileHash $_.FullName).Hash }) -join ','
+    if ($before -ne $after) { throw 'Clear modified saved files.' }
+}
 
 $publish = (Resolve-Path $PublishPath).Path
 $testFolder = Join-Path $env:RUNNER_TEMP ('ClipboardSnapper-smoke-' + [Guid]::NewGuid().ToString('N'))
@@ -123,7 +160,17 @@ try {
     foreach ($format in @(@('PNG', 'png'), @('JPEG', 'jpg'), @('BMP', 'bmp'))) {
         Set-Folder $testFolder
         Select-Format $format[0]
+        if ($format[0] -eq 'JPEG') {
+            Wait-For { $null -ne (Find-Control 'JpegQuality') } 'JPEG-only quality control'
+            $quality = [System.Windows.Automation.RangeValuePattern](Find-Control 'JpegQuality').GetCurrentPattern(
+                [System.Windows.Automation.RangeValuePattern]::Pattern)
+            if ($quality.Current.Value -ne 90 -or $quality.Current.Minimum -ne 1 -or $quality.Current.Maximum -ne 100) {
+                throw 'JPEG quality default/range is incorrect.'
+            }
+            Set-Quality 42
+        } elseif ($null -ne (Find-Control 'JpegQuality')) { throw 'JPEG quality is shown for PNG/BMP.' }
         Start-Monitoring
+        if ($format[0] -eq 'JPEG' -and (Find-Control 'JpegQuality').Current.IsEnabled) { throw 'Quality is editable while monitoring.' }
         Copy-Image
         $pattern = '*.' + $format[1]
         Wait-For { @(Get-ChildItem $testFolder -Filter $pattern).Count -gt 0 } "$($format[0]) image saving"
@@ -138,7 +185,18 @@ try {
         } finally { $image.Dispose() }
         Wait-For { $null -ne (Find-Control 'PreviewImage') } 'the saved-image preview'
         Wait-For { $null -ne (Find-Name (Find-Control 'HistoryList') 'Saved') } 'the saved history entry'
+        Clear-History
+        Clear-History
+        $previousCount = @(Get-ChildItem $testFolder -Filter $pattern).Count
+        Copy-Image
+        Wait-For { @(Get-ChildItem $testFolder -Filter $pattern).Count -gt $previousCount } 'a new capture after Clear'
+        Wait-For { $null -ne (Find-Control 'PreviewImage') -and $null -ne (Find-Name (Find-Control 'HistoryList') 'Saved') } 'new history and preview after Clear'
         Stop-Monitoring
+        if ($format[0] -eq 'JPEG') {
+            if (-not (Find-Control 'JpegQuality').Current.IsEnabled) { throw 'Quality did not unlock after Stop.' }
+            Set-Quality 100
+        }
+        Clear-History
     }
     $count = @(Get-ChildItem $testFolder -File).Count
     Copy-Image
@@ -162,7 +220,12 @@ try {
         throw 'The failure details do not expose the exception reason.'
     }
     Invoke-Control (Find-Name $details 'Close')
+    Clear-History
+    Clear-History
+    Copy-Image
+    Wait-For { $null -ne (Find-Name (Find-Control 'HistoryList') 'Failed') } 'a new failure after Clear'
     Stop-Monitoring
+    Clear-History
 
     $window = [System.Windows.Automation.WindowPattern]$root.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern)
     if (-not $window.Current.CanMaximize) { throw 'Maximizing is disabled.' }
@@ -174,7 +237,7 @@ try {
     Wait-For {
         (Find-Name $root 'Browse').Current.BoundingRectangle.Top -gt (Find-Control 'FolderPath').Current.BoundingRectangle.Top
     } 'narrow layout reflow'
-    Write-Output '::notice::Feature smoke passed: PNG/JPEG/BMP pixels, Start/Stop, preview/history, failure details, maximizing, and narrow layout reflow.'
+    Write-Output '::notice::Feature smoke passed: PNG/JPEG/BMP pixels, JPEG quality visibility/default/range/edit/freeze, repeated Clear while monitoring and stopped, fresh captures/failures after Clear, file hashes and clipboard retention, preview/history, failure details, maximizing and narrow layout reflow.'
     $window.Close()
     if (-not $process.WaitForExit(15000)) { throw 'The app did not close after finishing saves.' }
     if ($process.ExitCode -ne 0) { throw "App close failed: $($process.ExitCode)" }

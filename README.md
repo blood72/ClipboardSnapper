@@ -9,19 +9,32 @@ saved image, and recent successes and failures.
 1. Choose a **Save folder** by entering an absolute path or selecting **Browse**.
    The default is `Pictures\ClipboardSnapper`. **Open Folder** creates and opens
    the selected directory.
-2. Choose **PNG**, **JPEG**, or **BMP**, then press **Start**. The status changes
+2. Choose **PNG**, **JPEG**, or **BMP**. JPEG shows a **Quality (1–100)** slider,
+   defaulting to **90**; PNG and BMP hide it. Then press **Start**. The status changes
    from **Ready** to **Monitoring**. Existing clipboard content is not saved;
    copy a new image after starting. Text and file-list clipboard content are ignored.
 3. A completed save shows **Image saved**, updates the preview, and adds a **Saved**
    row with its local save time. **Save failed** and **Failed** rows expose the
    reason; select **Details** for the full path, time, and exception message.
 4. Press **Stop** to stop accepting clipboard changes. Images already being read
-   or saved finish in the background. Stop before changing folder or format.
+   or saved finish in the background. Stop before changing folder, format or JPEG
+   quality. All three options are fixed for each monitoring run and retained by
+   images already accepted, even after Stop.
+5. **Clear History**, next to **Recent files**, clears the current session's list,
+   preview, image captions and success/failure messages. It works while monitoring
+   or stopped and returns the screen to empty guidance. **Saved files are kept**;
+   the Windows clipboard and its history are unchanged. Monitoring and pending
+   saves continue. Previously accepted images finish saving without returning to
+   the cleared screen; images copied after Clear appear normally. This is a screen
+   cleanup action, not secure deletion. The save-folder setting is kept.
 
 Settings and the latest 100 history rows are session-only. Files remain on disk.
 Closing the window waits for accepted reads and writes to finish. JPEG images
 are composited onto white because JPEG cannot store transparency. Failed writes
 use temporary files and do not expose a partially written final image.
+JPEG quality is passed to `BitmapEncoder` as the `ImageQuality` option, dividing
+the integer slider value by 100 to produce a single-precision value from 0.01 to
+1.0. It is not applied to PNG or BMP.
 
 ## Window and processing behavior
 
@@ -39,6 +52,12 @@ worker encodes and saves images, then publishes results without awaiting the UI.
 UI updates are batched every 250 ms, the virtualized list is bounded, and preview
 decoding is limited to about 1024 × 768 pixels. Only the latest completed save is
 previewed; preview errors do not change the save result.
+Each clipboard change receives a session generation before any asynchronous read.
+Clear advances that generation and resets presentation metadata without touching
+the save queue. Results are checked when published and again when the UI drains
+them. Preview success/error completions also check generation and latest-image
+identity; an in-progress preview is cancelled on Clear. Old reads, saves and
+preview loads cannot repopulate the screen or overwrite a newer preview.
 
 Internal buffers are bounded. If images arrive faster than they can be read or
 saved, the app reports a failure rather than silently discarding a capture.
@@ -129,10 +148,33 @@ pixels or verify that a user can see the window. The complete publish folder is
 also tested through Windows UI Automation: PNG/JPEG/BMP pixel round trips,
 Start/Stop, preview/history, failure details, initial physical window bounds,
 maximizing, and narrow layout reflow. This is a UI Automation check rather than a
-screenshot or a multi-monitor/high-DPI visual review. The artifact is uploaded
+screenshot or a multi-monitor/high-DPI visual review. Deterministic contract
+tests also cover delayed clipboard-read/save
+results, queued results, preview success/error races, concurrent/repeated clears,
+post-clear captures, file preservation and frozen quality options. Windows tests
+exercise the real `BitmapEncoder` at quality 1/90/100 and compare file sizes and
+JPEG quantization tables, default 90 and white transparency. UI Automation checks
+Clear while monitoring/stopped, fresh successes/failures, unchanged file hashes
+and clipboard sequence, and JPEG quality visibility/editing restrictions.
+The artifact is uploaded
 only after these checks pass. CI then downloads that artifact and compares
 every file's relative path and SHA-256 hash with the publish output, including a
 file-count check.
+
+Run deterministic session tests on any OS, or include real encoding on Windows:
+
+```powershell
+dotnet restore tests/Contracts/Contracts.csproj --locked-mode -p:EnableWindowsTargeting=true
+dotnet run --project tests/Contracts/Contracts.csproj --framework net10.0 --configuration Release --no-restore
+# Windows only:
+dotnet run --project tests/Contracts/Contracts.csproj --framework net10.0-windows10.0.26100.0 --configuration Release --no-restore
+```
+
+These contract tests link the production session/encoding source; they do not
+require an additional test framework. Delayed operations use explicit completion
+gates rather than timing assumptions. The UI Automation test drives the published
+application; delayed preview completion is covered by the contract tests rather
+than a claim of visual observation during a decode.
 
 No Release publishing, Store registration, signing, or automatic deployment is
 configured.
