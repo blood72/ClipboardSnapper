@@ -1,6 +1,10 @@
 param([Parameter(Mandatory = $true)][string]$PublishPath)
 $ErrorActionPreference = 'Stop'
-trap { Write-Output "::error::$($_.Exception.Message)"; exit 1 }
+trap {
+    $trace = $_.ScriptStackTrace -replace '\r?\n', ' | '
+    Write-Output "::error::$($_.Exception.Message) at line $($_.InvocationInfo.ScriptLineNumber): $($_.InvocationInfo.Line.Trim()) / $trace"
+    exit 1
+}
 
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, WindowsBase, System.Windows.Forms, System.Drawing
 Add-Type @'
@@ -160,6 +164,7 @@ try {
     foreach ($format in @(@('PNG', 'png'), @('JPEG', 'jpg'), @('BMP', 'bmp'))) {
         Set-Folder $testFolder
         Select-Format $format[0]
+        Write-Output "::notice::Testing $($format[0]) controls and capture."
         if ($format[0] -eq 'JPEG') {
             Wait-For { $null -ne (Find-Control 'JpegQuality') } 'JPEG-only quality control'
             $quality = [System.Windows.Automation.RangeValuePattern](Find-Control 'JpegQuality').GetCurrentPattern(
@@ -185,6 +190,7 @@ try {
         } finally { $image.Dispose() }
         Wait-For { $null -ne (Find-Control 'PreviewImage') } 'the saved-image preview'
         Wait-For { $null -ne (Find-Name (Find-Control 'HistoryList') 'Saved') } 'the saved history entry'
+        Write-Output "::notice::$($format[0]) saved and displayed; testing Clear History."
         Clear-History
         Clear-History
         $previousCount = @(Get-ChildItem $testFolder -Filter $pattern).Count
