@@ -1,0 +1,91 @@
+name: Build Windows x64
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: 1
+      DOTNET_NOLOGO: 1
+      PROJECT: ClipboardSnapper/ClipboardSnapper.csproj
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install pinned .NET SDK
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore locked dependencies
+        run: dotnet restore $env:PROJECT --locked-mode -p:Platform=x64
+
+      - name: Build Release
+        run: dotnet build $env:PROJECT --configuration Release --no-restore -p:Platform=x64
+
+      - name: Publish self-contained folder
+        run: dotnet publish $env:PROJECT --configuration Release --no-build --no-restore -p:Platform=x64 --output artifacts/publish
+
+      - name: Bundle Visual C++ runtime
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vs) { throw 'Visual C++ build tools are missing.' }
+          $redist = Get-ChildItem "$vs\VC\Redist\MSVC\*\x64\Microsoft.VC143.CRT" -Directory |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $redist) { throw 'Visual C++ x64 redistributable files are missing.' }
+          Copy-Item "$($redist.FullName)\*.dll" artifacts/publish
+          Get-ChildItem "$($redist.FullName)\*.dll" | Select-Object Name, @{Name='Version'; Expression={$_.VersionInfo.FileVersion}}
+
+      - name: Verify publish contents and smoke test
+        run: |
+          $publish = (Resolve-Path artifacts/publish).Path
+          $required = @(
+            'ClipboardSnapper.exe', 'ClipboardSnapper.dll',
+            'ClipboardSnapper.deps.json', 'ClipboardSnapper.runtimeconfig.json',
+            'coreclr.dll', 'hostfxr.dll', 'hostpolicy.dll', 'System.Private.CoreLib.dll',
+            'Microsoft.UI.Xaml.dll', 'resources.pri',
+            'vcruntime140.dll', 'vcruntime140_1.dll', 'msvcp140.dll'
+          )
+          foreach ($file in $required) {
+            if (-not (Test-Path (Join-Path $publish $file))) { throw "Missing publish file: $file" }
+          }
+          $runtime = Get-Content "$publish/ClipboardSnapper.runtimeconfig.json" -Raw | ConvertFrom-Json
+          if ($runtime.runtimeOptions.framework -or $runtime.runtimeOptions.frameworks) {
+            throw 'The .NET runtime configuration is framework-dependent.'
+          }
+          $process = Start-Process "$publish/ClipboardSnapper.exe" -WorkingDirectory $publish -PassThru
+          try {
+            $deadline = (Get-Date).AddSeconds(30)
+            do {
+              Start-Sleep -Seconds 1
+              $process.Refresh()
+              if ($process.HasExited) { throw "App exited during startup: $($process.ExitCode)" }
+            } while ($process.MainWindowHandle -eq 0 -and (Get-Date) -lt $deadline)
+            if ($process.MainWindowHandle -eq 0) { throw 'The app did not create a main window handle.' }
+            if ($process.MainWindowTitle -ne 'ClipboardSnapper') { throw "Unexpected window title: $($process.MainWindowTitle)" }
+            Write-Output "Process startup and window handle/title verified: $($process.MainWindowTitle)."
+            Write-Output 'Actual on-screen visibility and clean-PC execution require manual verification.'
+          } finally {
+            if (-not $process.HasExited) { Stop-Process -Id $process.Id }
+          }
+
+      - name: Upload complete publish folder
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ClipboardSnapper-win-x64
+          path: artifacts/publish/**
+          if-no-files-found: error
+          retention-days: 14
