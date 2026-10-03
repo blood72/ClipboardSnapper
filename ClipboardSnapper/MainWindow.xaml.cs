@@ -39,6 +39,7 @@ public sealed partial class MainWindow : Window
 
     private async void Start_Click(object sender, RoutedEventArgs args)
     {
+        if (_closing) return;
         StartButton.IsEnabled = false;
         try
         {
@@ -60,8 +61,15 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private void Root_SizeChanged(object sender, SizeChangedEventArgs args)
+    {
+        // Keep normal content within the viewport; horizontal scrolling is a last resort.
+        RootPanel.Width = Math.Max(280, args.NewSize.Width - 64);
+    }
+
     private async void Stop_Click(object sender, RoutedEventArgs args)
     {
+        if (_closing) return;
         StopButton.IsEnabled = false;
         try
         {
@@ -85,6 +93,7 @@ public sealed partial class MainWindow : Window
 
     private async void Browse_Click(object sender, RoutedEventArgs args)
     {
+        if (_closing) return;
         try
         {
             var picker = new FolderPicker();
@@ -98,6 +107,7 @@ public sealed partial class MainWindow : Window
 
     private async void OpenFolder_Click(object sender, RoutedEventArgs args)
     {
+        if (_closing) return;
         try
         {
             var path = FolderPath.Text.Trim();
@@ -188,7 +198,7 @@ public sealed partial class MainWindow : Window
         args.Cancel = true;
         if (_closing) return;
         _closing = true;
-        RootPanel.IsEnabled = false;
+        RootPanel.IsHitTestVisible = false;
         MonitoringStatus.Text = "Finishing saves";
         _refresh.Stop();
         try { await _monitor.DisposeAsync(); }
