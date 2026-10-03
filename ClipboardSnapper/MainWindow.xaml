@@ -2,11 +2,103 @@
     x:Class="ClipboardSnapper.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:ClipboardSnapper"
     Title="ClipboardSnapper">
-    <Grid>
-        <TextBlock
-            Text="ClipboardSnapper"
-            HorizontalAlignment="Center"
-            VerticalAlignment="Center" />
+    <Grid x:Name="RootGrid" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+        <VisualStateManager.VisualStateGroups>
+            <VisualStateGroup>
+                <VisualState x:Name="Narrow">
+                    <VisualState.StateTriggers><AdaptiveTrigger MinWindowWidth="0" /></VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="MonitoringActions.(Grid.Row)" Value="1" />
+                        <Setter Target="MonitoringActions.(Grid.Column)" Value="0" />
+                        <Setter Target="FolderInput.(Grid.ColumnSpan)" Value="3" />
+                        <Setter Target="FolderActions.(Grid.Row)" Value="1" />
+                        <Setter Target="FolderActions.(Grid.Column)" Value="0" />
+                        <Setter Target="FolderActions.(Grid.ColumnSpan)" Value="3" />
+                        <Setter Target="FormatColumn.Width" Value="0" />
+                        <Setter Target="FormatInput.(Grid.Row)" Value="2" />
+                        <Setter Target="FormatInput.(Grid.Column)" Value="0" />
+                        <Setter Target="FormatInput.(Grid.ColumnSpan)" Value="3" />
+                    </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="Wide">
+                    <VisualState.StateTriggers><AdaptiveTrigger MinWindowWidth="850" /></VisualState.StateTriggers>
+                </VisualState>
+            </VisualStateGroup>
+        </VisualStateManager.VisualStateGroups>
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" HorizontalScrollMode="Auto">
+            <StackPanel x:Name="RootPanel" Spacing="20" Margin="24" MinWidth="280">
+                <Grid ColumnSpacing="16" RowSpacing="12">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="ClipboardSnapper" Style="{ThemeResource TitleTextBlockStyle}" />
+                        <TextBlock x:Name="MonitoringStatus" Text="Ready" FontSize="18" FontWeight="SemiBold" AutomationProperties.LiveSetting="Polite" AutomationProperties.AutomationId="MonitoringStatus" />
+                        <TextBlock x:Name="MonitoringHelp" Text="Choose a save folder, then press Start." TextWrapping="Wrap" />
+                    </StackPanel>
+                    <StackPanel x:Name="MonitoringActions" Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <Button x:Name="StartButton" Content="Start" Click="Start_Click" Style="{ThemeResource AccentButtonStyle}" AutomationProperties.AutomationId="StartButton" />
+                        <Button x:Name="StopButton" Content="Stop" Click="Stop_Click" IsEnabled="False" AutomationProperties.AutomationId="StopButton" />
+                    </StackPanel>
+                </Grid>
+                <StackPanel Spacing="12">
+                    <TextBlock Text="Save settings" Style="{ThemeResource SubtitleTextBlockStyle}" />
+                    <Grid ColumnSpacing="12" RowSpacing="12">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition x:Name="FormatColumn" Width="180" /></Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                        <StackPanel x:Name="FolderInput" Spacing="6">
+                            <TextBlock Text="Save folder" />
+                            <TextBox x:Name="FolderPath" AutomationProperties.Name="Save folder" AutomationProperties.AutomationId="FolderPath" />
+                        </StackPanel>
+                        <StackPanel x:Name="FolderActions" Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Bottom">
+                            <Button x:Name="BrowseButton" Content="Browse" Click="Browse_Click" />
+                            <Button Content="Open Folder" Click="OpenFolder_Click" />
+                        </StackPanel>
+                        <StackPanel x:Name="FormatInput" Grid.Column="2" Spacing="6">
+                            <TextBlock Text="Image format" />
+                            <ComboBox x:Name="FormatPicker" SelectedIndex="0" HorizontalAlignment="Stretch" AutomationProperties.Name="Image format" AutomationProperties.AutomationId="FormatPicker">
+                                <ComboBoxItem Content="PNG" /><ComboBoxItem Content="JPEG" /><ComboBoxItem Content="BMP" />
+                            </ComboBox>
+                        </StackPanel>
+                    </Grid>
+                    <TextBlock Text="Settings apply when you press Start. Stop monitoring to change them." TextWrapping="Wrap" Opacity="0.7" />
+                </StackPanel>
+                <InfoBar x:Name="ResultMessage" IsOpen="False" IsClosable="True" />
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Latest saved image" Style="{ThemeResource SubtitleTextBlockStyle}" />
+                    <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="16">
+                        <Grid MinHeight="180">
+                            <StackPanel x:Name="EmptyPreview" Spacing="8" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <TextBlock Text="No images saved yet" FontSize="20" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                <TextBlock Text="Press Start, then copy an image to the clipboard.&#x0a;Your latest saved image will appear here." TextWrapping="Wrap" />
+                            </StackPanel>
+                            <Image x:Name="PreviewImage" Stretch="Uniform" MaxHeight="320" Visibility="Collapsed" AutomationProperties.Name="Latest saved image" AutomationProperties.AutomationId="PreviewImage" />
+                        </Grid>
+                    </Border>
+                    <TextBlock x:Name="PreviewCaption" Text="The preview updates after an image has been saved." TextWrapping="Wrap" Opacity="0.7" />
+                </StackPanel>
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Recent files" Style="{ThemeResource SubtitleTextBlockStyle}" />
+                    <TextBlock x:Name="EmptyHistory" Text="Saved images and failures from this session will be listed here." TextWrapping="Wrap" />
+                    <ListView x:Name="HistoryList" MaxHeight="260" SelectionMode="None" IsItemClickEnabled="False" HorizontalContentAlignment="Stretch" AutomationProperties.Name="Recent saved files" AutomationProperties.AutomationId="HistoryList">
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="local:HistoryItem">
+                                <Grid Padding="0,8" RowSpacing="6">
+                                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                    <TextBlock Text="{x:Bind Name}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                    <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="16">
+                                        <TextBlock Text="{x:Bind Time}" />
+                                        <TextBlock Text="{x:Bind Status}" Foreground="{x:Bind StatusBrush}" FontWeight="SemiBold" />
+                                        <Button Content="Details" Click="Details_Click" Padding="8,2" />
+                                    </StackPanel>
+                                    <TextBlock Grid.Row="2" Text="{x:Bind Summary}" TextWrapping="Wrap" Opacity="0.75" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
     </Grid>
 </Window>
