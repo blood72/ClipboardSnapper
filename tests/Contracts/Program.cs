@@ -44,6 +44,7 @@ static class SessionContracts
 
         // A capture accepted before Clear can still be waiting for the clipboard provider.
         var accepted = new CapturedImage([1, 2, 3], options, session.Generation);
+        options = options with { Folder = "other-images", Format = ImageFormat.Bmp, JpegQuality = 100 };
         var readRelease = Gate();
         var lateRead = CompleteReadAsync();
         async Task<SaveResult> CompleteReadAsync()
@@ -58,7 +59,8 @@ static class SessionContracts
         readRelease.SetResult();
         Check.That(!session.Publish(await lateRead), "Late clipboard-read/save completion reappeared after Clear.");
         Check.That(ReferenceEquals(session.LatestSaved, fresh), "Late old save replaced the new preview candidate.");
-        Check.That(accepted.Options.JpegQuality == 90, "An accepted capture's frozen options changed.");
+        Check.That(accepted.Options is { JpegQuality: 90, Format: ImageFormat.Jpeg, Folder: "images" },
+            "Changing the next run's options changed an accepted capture's snapshot.");
 
         // A result already queued for a UI timer before Clear must be rejected when drained.
         var queued = fresh;
@@ -72,16 +74,24 @@ static class SessionContracts
         session.Publish(previewResult);
         var previewRelease = Gate();
         var preview = CompletePreviewAsync();
+        var previewError = CompletePreviewErrorAsync();
         async Task<bool> CompletePreviewAsync()
         {
             await previewRelease.Task;
             return session.CanPreview(previewResult);
+        }
+        async Task<bool> CompletePreviewErrorAsync()
+        {
+            await previewRelease.Task;
+            try { throw new IOException("old/path: preview loading failed"); }
+            catch (IOException) { return session.CanPreview(previewResult); }
         }
         session.Clear();
         var next = Saved(session.Generation, "after-preview-clear.png");
         session.Publish(next);
         previewRelease.SetResult();
         Check.That(!await preview, "Old preview completion survived Clear.");
+        Check.That(!await previewError, "An old preview failure restored a path message after Clear.");
         Check.That(!session.CanPreview(previewResult) && session.CanPreview(next), "Old preview error or new preview guard is wrong.");
         var newer = Saved(session.Generation, "newest.png");
         session.Publish(newer);

@@ -68,8 +68,15 @@ function Invoke-Control($Element) {
         [System.Windows.Automation.InvokePattern]::Pattern)).Invoke()
 }
 function Set-Folder([string]$Path) {
+    Scroll-ToTop
     ([System.Windows.Automation.ValuePattern](Find-Control 'FolderPath').GetCurrentPattern(
         [System.Windows.Automation.ValuePattern]::Pattern)).SetValue($Path)
+}
+function Scroll-ToTop {
+    $scroll = [System.Windows.Automation.ScrollPattern](Find-Control 'MainScroll').GetCurrentPattern(
+        [System.Windows.Automation.ScrollPattern]::Pattern)
+    if ($scroll.Current.VerticallyScrollable) { $scroll.SetScrollPercent(-1, 0) }
+    Wait-For { $null -ne (Find-Control 'StartButton') } 'monitoring controls after scrolling to the top'
 }
 function Select-Format([string]$Name) {
     $combo = Find-Control 'FormatPicker'
@@ -94,10 +101,12 @@ function Copy-Image {
     } finally { $graphics.Dispose(); $bitmap.Dispose() }
 }
 function Start-Monitoring {
+    Scroll-ToTop
     Invoke-Control (Find-Control 'StartButton')
     Wait-For { (Find-Control 'MonitoringStatus').Current.Name -eq 'Monitoring' } 'monitoring state'
 }
 function Stop-Monitoring {
+    Scroll-ToTop
     Invoke-Control (Find-Control 'StopButton')
     Wait-For { (Find-Control 'MonitoringStatus').Current.Name -eq 'Stopped' } 'stopped state'
 }

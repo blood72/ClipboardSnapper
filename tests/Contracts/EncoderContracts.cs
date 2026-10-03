@@ -45,8 +45,9 @@ static class EncoderContracts
             }
             var session = new SessionHistory();
             var pending = new CapturedImage(bytes, options, session.Generation);
+            var saving = ImageSaver.SaveAsync(pending);
             session.Clear();
-            var savedAfterClear = await ImageSaver.SaveAsync(pending);
+            var savedAfterClear = await saving;
             Check.That(savedAfterClear.Success && File.Exists(savedAfterClear.FilePath) && !session.Publish(savedAfterClear),
                 "A real pre-clear image did not finish saving without returning to the history.");
             var failed = await ImageSaver.SaveAsync(new CapturedImage([1, 2, 3], options, pending.Generation));
