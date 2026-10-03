@@ -6,8 +6,10 @@ hotkeys, settings, or automatic updates are implemented.
 
 ## Requirements
 
-- An x64 PC running a supported Windows 11 release (24H2 or 25H2), or Windows 10
-  22H2 (build 19045) with applicable Extended Security Updates. Keep Windows updated.
+- An x64 PC running Windows 11 24H2 (build 26100) or 25H2 (build 26200).
+  Windows 11 24H2 is the minimum supported desktop release for this boilerplate.
+  Keep Windows updated and use an edition still in Microsoft support.
+  Windows 10 is not included in this app's supported deployment targets.
 - An interactive desktop session. ARM64 and x86 builds are not included.
 - Keep every file and subfolder from the downloaded artifact together.
 
