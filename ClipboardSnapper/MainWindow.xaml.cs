@@ -18,6 +18,8 @@ public sealed partial class MainWindow : Window
     private readonly ObservableCollection<HistoryItem> _history = [];
     private readonly DispatcherQueueTimer _refresh;
     private SaveResult? _previewAttempt;
+    private CancellationTokenSource? _previewCancellation;
+    private ContentDialog? _detailsDialog;
     private bool _previewBusy;
     private bool _watching;
     private bool _closing;
@@ -27,6 +29,7 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        UpdateQualityVisibility();
         WindowPlacement.Apply(AppWindow);
         FolderPath.Text = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "ClipboardSnapper");
         HistoryList.ItemsSource = _history;
@@ -40,6 +43,7 @@ public sealed partial class MainWindow : Window
     private async void Start_Click(object sender, RoutedEventArgs args)
     {
         if (_closing) return;
+        var generation = _monitor.History.Generation;
         StartButton.IsEnabled = false;
         try
         {
@@ -47,7 +51,9 @@ public sealed partial class MainWindow : Window
             if (!Path.IsPathFullyQualified(folder))
                 throw new ArgumentException("Choose an absolute save folder path.");
             folder = Path.GetFullPath(folder);
-            await _monitor.StartAsync(new SaveOptions(folder, (ImageFormat)FormatPicker.SelectedIndex));
+            var options = new SaveOptions(folder, (ImageFormat)FormatPicker.SelectedIndex,
+                (int)Math.Round(JpegQuality.Value));
+            await _monitor.StartAsync(options);
             FolderPath.Text = folder;
             _watching = true;
             MonitoringStatus.Text = "Monitoring";
@@ -56,7 +62,7 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception exception)
         {
-            ShowResult("Could not start monitoring", exception.Message, InfoBarSeverity.Error);
+            ShowResult("Could not start monitoring", exception.Message, InfoBarSeverity.Error, generation);
             SetControls();
         }
     }
@@ -70,6 +76,7 @@ public sealed partial class MainWindow : Window
     private async void Stop_Click(object sender, RoutedEventArgs args)
     {
         if (_closing) return;
+        var generation = _monitor.History.Generation;
         StopButton.IsEnabled = false;
         try
         {
@@ -78,7 +85,7 @@ public sealed partial class MainWindow : Window
             MonitoringStatus.Text = "Stopped";
             MonitoringHelp.Text = "Monitoring is stopped. Images already being read or saved will finish.";
         }
-        catch (Exception exception) { ShowResult("Could not stop monitoring", exception.Message, InfoBarSeverity.Error); }
+        catch (Exception exception) { ShowResult("Could not stop monitoring", exception.Message, InfoBarSeverity.Error, generation); }
         SetControls();
     }
 
@@ -89,11 +96,40 @@ public sealed partial class MainWindow : Window
         FolderPath.IsEnabled = !_watching;
         BrowseButton.IsEnabled = !_watching;
         FormatPicker.IsEnabled = !_watching;
+        JpegQuality.IsEnabled = !_watching;
+    }
+
+    private void Format_SelectionChanged(object sender, SelectionChangedEventArgs args) => UpdateQualityVisibility();
+
+    private void UpdateQualityVisibility()
+    {
+        if (JpegQualityPanel is not null)
+            JpegQualityPanel.Visibility = FormatPicker.SelectedIndex == (int)ImageFormat.Jpeg
+                ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void ClearHistory_Click(object sender, RoutedEventArgs args)
+    {
+        if (_closing) return;
+        _monitor.History.Clear();
+        _previewCancellation?.Cancel();
+        _previewAttempt = null;
+        _history.Clear();
+        PreviewImage.Source = null;
+        PreviewImage.Visibility = Visibility.Collapsed;
+        EmptyPreview.Visibility = Visibility.Visible;
+        EmptyHistory.Visibility = Visibility.Visible;
+        PreviewCaption.Text = "The preview updates after an image has been saved.";
+        ResultMessage.IsOpen = false;
+        ResultMessage.Title = "";
+        ResultMessage.Message = "";
+        _detailsDialog?.Hide();
     }
 
     private async void Browse_Click(object sender, RoutedEventArgs args)
     {
         if (_closing) return;
+        var generation = _monitor.History.Generation;
         try
         {
             var picker = new FolderPicker();
@@ -102,12 +138,13 @@ public sealed partial class MainWindow : Window
             var folder = await picker.PickSingleFolderAsync();
             if (folder is not null) FolderPath.Text = folder.Path;
         }
-        catch (Exception exception) { ShowResult("Could not choose a folder", exception.Message, InfoBarSeverity.Error); }
+        catch (Exception exception) { ShowResult("Could not choose a folder", exception.Message, InfoBarSeverity.Error, generation); }
     }
 
     private async void OpenFolder_Click(object sender, RoutedEventArgs args)
     {
         if (_closing) return;
+        var generation = _monitor.History.Generation;
         try
         {
             var path = FolderPath.Text.Trim();
@@ -116,21 +153,22 @@ public sealed partial class MainWindow : Window
             if (!await Launcher.LaunchFolderAsync(await StorageFolder.GetFolderFromPathAsync(path)))
                 throw new IOException("Windows could not open this folder.");
         }
-        catch (Exception exception) { ShowResult("Could not open the folder", exception.Message, InfoBarSeverity.Error); }
+        catch (Exception exception) { ShowResult("Could not open the folder", exception.Message, InfoBarSeverity.Error, generation); }
     }
 
     private void RefreshResults(DispatcherQueueTimer sender, object args)
     {
         for (var i = 0; i < 32 && _monitor.Results.TryRead(out var result); i++)
         {
+            if (!_monitor.History.IsCurrent(result.Generation)) continue;
             _history.Insert(0, new HistoryItem(result));
             if (_history.Count > 100) _history.RemoveAt(_history.Count - 1);
             EmptyHistory.Visibility = Visibility.Collapsed;
             ShowResult(result.Success ? "Image saved" : "Save failed",
                 result.Success ? result.FilePath : result.Error,
-                result.Success ? InfoBarSeverity.Success : InfoBarSeverity.Error);
+                result.Success ? InfoBarSeverity.Success : InfoBarSeverity.Error, result.Generation);
         }
-        var latest = _monitor.LatestSaved;
+        var latest = _monitor.History.LatestSaved;
         if (!_previewBusy && latest is not null && latest != _previewAttempt)
         {
             _previewAttempt = latest;
@@ -141,28 +179,33 @@ public sealed partial class MainWindow : Window
     private async Task RefreshPreviewAsync(SaveResult result)
     {
         _previewBusy = true;
+        using var cancellation = new CancellationTokenSource();
+        _previewCancellation = cancellation;
         try
         {
             var ratio = Math.Min(1, Math.Min(1024d / result.Width, 768d / result.Height));
             var bitmap = new BitmapImage { DecodePixelWidth = (int)Math.Max(1, Math.Round(result.Width * ratio)) };
-            using var stream = await (await StorageFile.GetFileFromPathAsync(result.FilePath)).OpenReadAsync();
-            await bitmap.SetSourceAsync(stream);
-            if (_closing || _monitor.LatestSaved != result) return;
+            var file = await StorageFile.GetFileFromPathAsync(result.FilePath).AsTask(cancellation.Token);
+            using var stream = await file.OpenReadAsync().AsTask(cancellation.Token);
+            await bitmap.SetSourceAsync(stream).AsTask(cancellation.Token);
+            if (_closing || !_monitor.History.CanPreview(result)) return;
             PreviewImage.Source = bitmap;
             PreviewImage.Visibility = Visibility.Visible;
             EmptyPreview.Visibility = Visibility.Collapsed;
             PreviewCaption.Text = $"{Path.GetFileName(result.FilePath)} · {result.Width} × {result.Height} · {result.Time:HH:mm:ss}";
         }
+        catch (OperationCanceledException) { }
         catch (Exception exception)
         {
-            if (!_closing && _monitor.LatestSaved == result)
+            if (!_closing && _monitor.History.CanPreview(result))
                 PreviewCaption.Text = $"Image saved, but the preview could not be loaded: {exception.Message}";
         }
-        finally { _previewBusy = false; }
+        finally { _previewCancellation = null; _previewBusy = false; }
     }
 
-    private void ShowResult(string title, string message, InfoBarSeverity severity)
+    private void ShowResult(string title, string message, InfoBarSeverity severity, long generation)
     {
+        if (!_monitor.History.IsCurrent(generation)) return;
         ResultMessage.Title = title;
         ResultMessage.Message = message;
         ResultMessage.Severity = severity;
@@ -172,6 +215,7 @@ public sealed partial class MainWindow : Window
     private async void Details_Click(object sender, RoutedEventArgs args)
     {
         if (_detailsOpen || _closing || ((FrameworkElement)sender).DataContext is not HistoryItem item) return;
+        if (!_monitor.History.IsCurrent(item.Result.Generation)) return;
         var dialog = new ContentDialog
         {
             XamlRoot = RootGrid.XamlRoot,
@@ -187,9 +231,10 @@ public sealed partial class MainWindow : Window
         };
         AutomationProperties.SetAutomationId(dialog, "FileDetails");
         _detailsOpen = true;
+        _detailsDialog = dialog;
         try { await dialog.ShowAsync(); }
-        catch (Exception exception) { ShowResult("Could not show file details", exception.Message, InfoBarSeverity.Error); }
-        finally { _detailsOpen = false; }
+        catch (Exception exception) { ShowResult("Could not show file details", exception.Message, InfoBarSeverity.Error, item.Result.Generation); }
+        finally { _detailsDialog = null; _detailsOpen = false; }
     }
 
     private async void OnClosing(AppWindow sender, AppWindowClosingEventArgs args)
@@ -201,6 +246,7 @@ public sealed partial class MainWindow : Window
         RootPanel.IsHitTestVisible = false;
         MonitoringStatus.Text = "Finishing saves";
         _refresh.Stop();
+        _previewCancellation?.Cancel();
         try { await _monitor.DisposeAsync(); }
         finally { _allowClose = true; Close(); }
     }

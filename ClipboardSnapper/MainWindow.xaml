@@ -57,14 +57,22 @@
                         </StackPanel>
                         <StackPanel x:Name="FormatInput" Grid.Column="2" Spacing="6">
                             <TextBlock Text="Image format" />
-                            <ComboBox x:Name="FormatPicker" SelectedIndex="0" HorizontalAlignment="Stretch" AutomationProperties.Name="Image format" AutomationProperties.AutomationId="FormatPicker">
+                            <ComboBox x:Name="FormatPicker" SelectedIndex="0" SelectionChanged="Format_SelectionChanged" HorizontalAlignment="Stretch" AutomationProperties.Name="Image format" AutomationProperties.AutomationId="FormatPicker">
                                 <ComboBoxItem Content="PNG" /><ComboBoxItem Content="JPEG" /><ComboBoxItem Content="BMP" />
                             </ComboBox>
+                            <StackPanel x:Name="JpegQualityPanel" Spacing="4" Visibility="Collapsed">
+                                <TextBlock Text="Quality (1–100)" />
+                                <Grid ColumnSpacing="8">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <Slider x:Name="JpegQuality" Minimum="1" Maximum="100" Value="90" StepFrequency="1" AutomationProperties.Name="JPEG quality" AutomationProperties.AutomationId="JpegQuality" />
+                                    <TextBlock Grid.Column="1" Text="{Binding Value, ElementName=JpegQuality}" VerticalAlignment="Center" />
+                                </Grid>
+                            </StackPanel>
                         </StackPanel>
                     </Grid>
                     <TextBlock Text="Settings apply when you press Start. Stop monitoring to change them." TextWrapping="Wrap" Opacity="0.7" />
                 </StackPanel>
-                <InfoBar x:Name="ResultMessage" IsOpen="False" IsClosable="True" />
+                <InfoBar x:Name="ResultMessage" IsOpen="False" IsClosable="True" AutomationProperties.AutomationId="ResultMessage" />
                 <StackPanel Spacing="8">
                     <TextBlock Text="Latest saved image" Style="{ThemeResource SubtitleTextBlockStyle}" />
                     <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="16">
@@ -76,10 +84,16 @@
                             <Image x:Name="PreviewImage" Stretch="Uniform" MaxHeight="320" Visibility="Collapsed" AutomationProperties.Name="Latest saved image" AutomationProperties.AutomationId="PreviewImage" />
                         </Grid>
                     </Border>
-                    <TextBlock x:Name="PreviewCaption" Text="The preview updates after an image has been saved." TextWrapping="Wrap" Opacity="0.7" />
+                    <TextBlock x:Name="PreviewCaption" Text="The preview updates after an image has been saved." TextWrapping="Wrap" Opacity="0.7" AutomationProperties.AutomationId="PreviewCaption" />
                 </StackPanel>
                 <StackPanel Spacing="8">
-                    <TextBlock Text="Recent files" Style="{ThemeResource SubtitleTextBlockStyle}" />
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <TextBlock Text="Recent files" Style="{ThemeResource SubtitleTextBlockStyle}" VerticalAlignment="Center" />
+                        <Button Grid.Column="1" Content="Clear History" Click="ClearHistory_Click" AutomationProperties.AutomationId="ClearHistoryButton"
+                            ToolTipService.ToolTip="Clears only the current session's list and preview. Saved files are kept. Monitoring and queued saves continue; the Windows clipboard is unchanged."
+                            AutomationProperties.HelpText="Clears only the current session's list and preview. Saved files are kept. Monitoring and queued saves continue; the Windows clipboard is unchanged." />
+                    </Grid>
                     <TextBlock x:Name="EmptyHistory" Text="Saved images and failures from this session will be listed here." TextWrapping="Wrap" />
                     <ListView x:Name="HistoryList" MaxHeight="260" SelectionMode="None" IsItemClickEnabled="False" HorizontalContentAlignment="Stretch" AutomationProperties.Name="Recent saved files" AutomationProperties.AutomationId="HistoryList">
                         <ListView.ItemTemplate>

@@ -1,14 +1,9 @@
+using Windows.Foundation;
 using Windows.Graphics.Imaging;
 using Windows.Storage;
 using Windows.Storage.Streams;
 
 namespace ClipboardSnapper;
-
-public enum ImageFormat { Png, Jpeg, Bmp }
-public sealed record SaveOptions(string Folder, ImageFormat Format);
-public sealed record CapturedImage(byte[] Bytes, SaveOptions Options);
-public sealed record SaveResult(string FilePath, DateTimeOffset Time, bool Success,
-    string Error = "", uint Width = 0, uint Height = 0);
 
 public static class ImageSaver
 {
@@ -62,7 +57,10 @@ public static class ImageSaver
                     ImageFormat.Bmp => BitmapEncoder.BmpEncoderId,
                     _ => BitmapEncoder.PngEncoderId
                 };
-                var encoder = await BitmapEncoder.CreateAsync(encoderId, output);
+                var properties = new BitmapPropertySet();
+                if (image.Options.Format == ImageFormat.Jpeg)
+                    properties.Add("ImageQuality", new BitmapTypedValue(image.Options.EncoderQuality, PropertyType.Single));
+                var encoder = await BitmapEncoder.CreateAsync(encoderId, output, properties);
                 encoder.SetPixelData(BitmapPixelFormat.Bgra8,
                     image.Options.Format == ImageFormat.Jpeg ? BitmapAlphaMode.Ignore : BitmapAlphaMode.Straight,
                     width, height, decoder.DpiX, decoder.DpiY, pixels);
@@ -70,12 +68,13 @@ public static class ImageSaver
             }
             await temporary.RenameAsync(name, NameCollisionOption.FailIfExists);
             temporary = null;
-            return new SaveResult(path, DateTimeOffset.Now, true, Width: width, Height: height);
+            return new SaveResult(path, DateTimeOffset.Now, true, Width: width, Height: height,
+                Generation: image.Generation);
         }
         catch (Exception exception)
         {
             return new SaveResult(path, DateTimeOffset.Now, false,
-                $"{exception.GetType().Name}: {exception.Message}");
+                $"{exception.GetType().Name}: {exception.Message}", Generation: image.Generation);
         }
         finally
         {

@@ -16,7 +16,6 @@ public sealed class ClipboardMonitor : IAsyncDisposable
     private readonly List<Task> _pending = [];
     private readonly Task _writer;
     private SaveOptions? _options;
-    private SaveResult? _latestSaved;
     private uint _lastSequence;
     private int _reading;
     private bool _watching;
@@ -24,7 +23,7 @@ public sealed class ClipboardMonitor : IAsyncDisposable
 
     public ClipboardMonitor() => _writer = Task.Run(WriteImagesAsync);
     public ChannelReader<SaveResult> Results => _results.Reader;
-    public SaveResult? LatestSaved => Volatile.Read(ref _latestSaved);
+    public SessionHistory History { get; } = new();
 
     public Task StartAsync(SaveOptions options) => OnCaptureThreadAsync(() =>
     {
@@ -56,7 +55,8 @@ public sealed class ClipboardMonitor : IAsyncDisposable
         var sequence = GetClipboardSequenceNumber();
         if (sequence == _lastSequence) return;
         _lastSequence = sequence;
-        var task = ReadImageAsync(_options);
+        // Stamp acceptance before any asynchronous clipboard read, including reads still pending at Clear.
+        var task = ReadImageAsync(_options, History.Generation);
         _pending.Add(task);
         _ = ForgetCompletedAsync(task);
     }
@@ -67,7 +67,7 @@ public sealed class ClipboardMonitor : IAsyncDisposable
         _pending.Remove(task);
     }
 
-    private async Task ReadImageAsync(SaveOptions options)
+    private async Task ReadImageAsync(SaveOptions options, long generation)
     {
         var entered = false;
         try
@@ -93,13 +93,13 @@ public sealed class ClipboardMonitor : IAsyncDisposable
                     throw new InvalidDataException("The clipboard image exceeds the 128 MB limit.");
                 bytes.Write(buffer, 0, count);
             }
-            if (!_images.Writer.TryWrite(new CapturedImage(bytes.ToArray(), options)))
+            if (!_images.Writer.TryWrite(new CapturedImage(bytes.ToArray(), options, generation)))
                 throw new IOException("Image saving is busy. Copy the image again after a moment.");
         }
         catch (Exception exception)
         {
-            _results.Writer.TryWrite(new SaveResult(options.Folder, DateTimeOffset.Now, false,
-                $"{exception.GetType().Name}: {exception.Message}"));
+            PublishResult(new SaveResult(options.Folder, DateTimeOffset.Now, false,
+                $"{exception.GetType().Name}: {exception.Message}", Generation: generation));
         }
         finally { if (entered) _reading--; }
     }
@@ -109,10 +109,14 @@ public sealed class ClipboardMonitor : IAsyncDisposable
         await foreach (var image in _images.Reader.ReadAllAsync())
         {
             var result = await ImageSaver.SaveAsync(image);
-            if (result.Success) Volatile.Write(ref _latestSaved, result);
-            // Rendering never participates in capture or file-write completion.
-            _results.Writer.TryWrite(result);
+            PublishResult(result);
         }
+    }
+
+    private void PublishResult(SaveResult result)
+    {
+        // Old images still finish saving. Their results cannot replace the current session's latest image.
+        if (History.Publish(result)) _results.Writer.TryWrite(result);
     }
 
     private Task OnCaptureThreadAsync(Func<Task> action)
