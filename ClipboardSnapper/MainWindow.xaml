@@ -1,0 +1,12 @@
+<Window
+    x:Class="ClipboardSnapper.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="ClipboardSnapper">
+    <Grid>
+        <TextBlock
+            Text="ClipboardSnapper"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Center" />
+    </Grid>
+</Window>
