@@ -51,6 +51,10 @@ jobs:
 
       - name: Verify publish contents and smoke test
         run: |
+          trap {
+            Write-Output "::error::$($_.Exception.Message)"
+            exit 1
+          }
           $publish = (Resolve-Path artifacts/publish).Path
           $required = @(
             'ClipboardSnapper.exe', 'ClipboardSnapper.dll',
