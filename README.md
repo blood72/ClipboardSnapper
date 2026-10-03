@@ -1,8 +1,51 @@
 # ClipboardSnapper
 
-A minimal C# / WinUI 3 desktop app. It opens a window titled **ClipboardSnapper**
-and displays the app name. No capture, clipboard monitoring, tray integration,
-hotkeys, settings, or automatic updates are implemented.
+A C# / WinUI 3 desktop app that saves new clipboard images while monitoring is
+enabled. The English screen shows monitoring controls, save settings, the latest
+saved image, and recent successes and failures.
+
+## Use the app
+
+1. Choose a **Save folder** by entering an absolute path or selecting **Browse**.
+   The default is `Pictures\ClipboardSnapper`. **Open Folder** creates and opens
+   the selected directory.
+2. Choose **PNG**, **JPEG**, or **BMP**, then press **Start**. The status changes
+   from **Ready** to **Monitoring**. Existing clipboard content is not saved;
+   copy a new image after starting. Text and file-list clipboard content are ignored.
+3. A completed save shows **Image saved**, updates the preview, and adds a **Saved**
+   row with its local save time. **Save failed** and **Failed** rows expose the
+   reason; select **Details** for the full path, time, and exception message.
+4. Press **Stop** to stop accepting clipboard changes. Images already being read
+   or saved finish in the background. Stop before changing folder or format.
+
+Settings and the latest 100 history rows are session-only. Files remain on disk.
+Closing the window waits for accepted reads and writes to finish. JPEG images
+are composited onto white because JPEG cannot store transparency. Failed writes
+use temporary files and do not expose a partially written final image.
+
+## Window and processing behavior
+
+The initial outer window targets **1300 × 860 physical pixels** and is centered
+on the work area of the monitor containing the pointer. The work area excludes
+the taskbar; the requested size is clamped to it. AppWindow and DisplayArea APIs
+already use physical pixels, so the target is not multiplied by the DPI scale.
+The manifest enables PerMonitorV2 awareness. XAML uses logical units: at 150%
+scale, 1300 physical pixels correspond to roughly 867 logical units before window
+chrome is accounted for. Settings stack below 850 logical units. Scrolling keeps
+content accessible in small windows; resizing and maximizing remain enabled.
+
+Clipboard access runs on a dedicated dispatcher thread. A separate background
+worker encodes and saves images, then publishes results without awaiting the UI.
+UI updates are batched every 250 ms, the virtualized list is bounded, and preview
+decoding is limited to about 1024 × 768 pixels. Only the latest completed save is
+previewed; preview errors do not change the save result.
+
+Internal buffers are bounded. If images arrive faster than they can be read or
+saved, the app reports a failure rather than silently discarding a capture.
+Individual clipboard streams are limited to 128 MB and decoded images to 64
+megapixels. Clipboard providers can invalidate data before it is read; a read
+failure is reported with instructions to copy again. There is no app-specific
+filter, queue management screen, tray integration, or automatic updater.
 
 ## Requirements
 
@@ -33,8 +76,8 @@ visibility. Final desktop verification should be performed on the target PC.
    14 days.
 4. Extract the **entire ZIP** into a folder. Do not run the app inside the ZIP or
    copy only the executable.
-5. Open the extracted folder and run **ClipboardSnapper.exe**. A basic window
-   titled **ClipboardSnapper** should appear with the app name in its center.
+5. Open the extracted folder and run **ClipboardSnapper.exe**. The monitoring
+   screen opens in the **Ready** state; follow the usage steps above.
 
 ## Build from source
 
@@ -83,7 +126,11 @@ the published executable. The smoke test checks that the process remains alive,
 creates a main window handle, reports the expected title, and loads the .NET CLR
 and WinUI native modules from the publish folder. It does not inspect
 pixels or verify that a user can see the window. The complete publish folder is
-uploaded only after these checks pass. CI then downloads that artifact and compares
+also tested through Windows UI Automation: PNG/JPEG/BMP pixel round trips,
+Start/Stop, preview/history, failure details, initial physical window bounds,
+maximizing, and narrow layout reflow. This is a UI Automation check rather than a
+screenshot or a multi-monitor/high-DPI visual review. The artifact is uploaded
+only after these checks pass. CI then downloads that artifact and compares
 every file's relative path and SHA-256 hash with the publish output, including a
 file-count check.
 

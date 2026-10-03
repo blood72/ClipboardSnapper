@@ -2,12 +2,13 @@ using System.Collections.ObjectModel;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Storage;
 using Windows.Storage.Pickers;
-using Windows.System;
+using Launcher = Windows.System.Launcher;
 
 namespace ClipboardSnapper;
 
@@ -21,6 +22,7 @@ public sealed partial class MainWindow : Window
     private bool _watching;
     private bool _closing;
     private bool _allowClose;
+    private bool _detailsOpen;
 
     public MainWindow()
     {
@@ -159,7 +161,7 @@ public sealed partial class MainWindow : Window
 
     private async void Details_Click(object sender, RoutedEventArgs args)
     {
-        if (((FrameworkElement)sender).DataContext is not HistoryItem item) return;
+        if (_detailsOpen || _closing || ((FrameworkElement)sender).DataContext is not HistoryItem item) return;
         var dialog = new ContentDialog
         {
             XamlRoot = RootGrid.XamlRoot,
@@ -173,7 +175,11 @@ public sealed partial class MainWindow : Window
             },
             CloseButtonText = "Close"
         };
-        await dialog.ShowAsync();
+        AutomationProperties.SetAutomationId(dialog, "FileDetails");
+        _detailsOpen = true;
+        try { await dialog.ShowAsync(); }
+        catch (Exception exception) { ShowResult("Could not show file details", exception.Message, InfoBarSeverity.Error); }
+        finally { _detailsOpen = false; }
     }
 
     private async void OnClosing(AppWindow sender, AppWindowClosingEventArgs args)

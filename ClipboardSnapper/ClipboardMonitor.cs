@@ -31,8 +31,8 @@ public sealed class ClipboardMonitor : IAsyncDisposable
         if (_watching) return Task.CompletedTask;
         _options = options;
         _lastSequence = GetClipboardSequenceNumber();
-        _watching = true;
         Clipboard.ContentChanged += OnContentChanged;
+        _watching = true;
         return Task.CompletedTask;
     });
 
