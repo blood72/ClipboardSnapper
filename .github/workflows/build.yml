@@ -94,10 +94,33 @@ jobs:
           }
 
       - name: Upload complete publish folder
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: ClipboardSnapper-win-x64
           path: artifacts/publish/
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 14
+
+      - name: Download uploaded artifact for verification
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: ClipboardSnapper-win-x64
+          path: artifacts/downloaded
+
+      - name: Verify every artifact file
+        run: |
+          $source = (Resolve-Path artifacts/publish).Path
+          $download = (Resolve-Path artifacts/downloaded).Path
+          $files = @(Get-ChildItem $source -Recurse -File -Force)
+          $downloaded = @(Get-ChildItem $download -Recurse -File -Force)
+          if ($files.Count -ne $downloaded.Count) { throw 'Artifact file count does not match publish output.' }
+          foreach ($file in $files) {
+            $relative = [IO.Path]::GetRelativePath($source, $file.FullName)
+            $copy = Join-Path $download $relative
+            if (-not (Test-Path $copy -PathType Leaf)) { throw "Missing artifact file: $relative" }
+            if ((Get-FileHash $file.FullName -Algorithm SHA256).Hash -ne (Get-FileHash $copy -Algorithm SHA256).Hash) {
+              throw "Artifact file hash mismatch: $relative"
+            }
+          }
+          Write-Output "::notice::Artifact verified: $($files.Count) files; all paths and SHA-256 hashes match the publish folder."

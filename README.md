@@ -83,7 +83,9 @@ the published executable. The smoke test checks that the process remains alive,
 creates a main window handle, reports the expected title, and loads the .NET CLR
 and WinUI native modules from the publish folder. It does not inspect
 pixels or verify that a user can see the window. The complete publish folder is
-uploaded only after these checks pass.
+uploaded only after these checks pass. CI then downloads that artifact and compares
+every file's relative path and SHA-256 hash with the publish output, including a
+file-count check.
 
 No Release publishing, Store registration, signing, or automatic deployment is
 configured.
