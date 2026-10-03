@@ -56,7 +56,7 @@ Visual Studio. Run these commands from the repository root:
 ```powershell
 dotnet restore ClipboardSnapper/ClipboardSnapper.csproj --locked-mode -p:Platform=x64
 dotnet build ClipboardSnapper/ClipboardSnapper.csproj --configuration Release --no-restore -p:Platform=x64
-dotnet publish ClipboardSnapper/ClipboardSnapper.csproj --configuration Release --no-build --no-restore -p:Platform=x64 --output artifacts/publish
+dotnet publish ClipboardSnapper/ClipboardSnapper.csproj --configuration Release --no-restore -p:Platform=x64 --output artifacts/publish
 ```
 
 To reproduce the complete downloadable folder, also perform the **Bundle Visual
@@ -70,13 +70,18 @@ publishing, trimming, and ReadyToRun are disabled. NuGet dependencies are locked
 in `ClipboardSnapper/packages.lock.json`; Actions are pinned to commit SHAs.
 Dependency version pins do not freeze the hosted runner image.
 
+`EnableMsixTooling` enables the template's XAML/PRI resource build targets;
+`WindowsPackageType=None` keeps deployment unpackaged. Publish runs the incremental
+build targets so the app's resource index is included in the output folder.
+
 ## CI validation
 
 The workflow runs on `windows-2022` for pushes to `main` and manual dispatches.
 It restores locked dependencies, builds Release, publishes, bundles the CRT,
 checks required output files and self-contained .NET configuration, and launches
 the published executable. The smoke test checks that the process remains alive,
-creates a main window handle, and reports the expected title. It does not inspect
+creates a main window handle, reports the expected title, and loads the .NET CLR
+and WinUI native modules from the publish folder. It does not inspect
 pixels or verify that a user can see the window. The complete publish folder is
 uploaded only after these checks pass.
 

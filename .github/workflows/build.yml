@@ -36,7 +36,7 @@ jobs:
         run: dotnet build $env:PROJECT --configuration Release --no-restore -p:Platform=x64
 
       - name: Publish self-contained folder
-        run: dotnet publish $env:PROJECT --configuration Release --no-build --no-restore -p:Platform=x64 --output artifacts/publish
+        run: dotnet publish $env:PROJECT --configuration Release --no-restore -p:Platform=x64 --output artifacts/publish
 
       - name: Bundle Visual C++ runtime
         run: |
@@ -81,7 +81,13 @@ jobs:
             } while ($process.MainWindowHandle -eq 0 -and (Get-Date) -lt $deadline)
             if ($process.MainWindowHandle -eq 0) { throw 'The app did not create a main window handle.' }
             if ($process.MainWindowTitle -ne 'ClipboardSnapper') { throw "Unexpected window title: $($process.MainWindowTitle)" }
-            Write-Output "Process startup and window handle/title verified: $($process.MainWindowTitle)."
+            foreach ($name in @('coreclr.dll', 'Microsoft.UI.Xaml.dll')) {
+              $module = $process.Modules | Where-Object ModuleName -eq $name | Select-Object -First 1
+              if (-not $module -or $module.FileName -ne (Join-Path $publish $name)) {
+                throw "Runtime module was not loaded from the publish folder: $name"
+              }
+            }
+            Write-Output "::notice::Process startup, window handle/title, and app-local .NET/WinUI modules verified: $($process.MainWindowTitle)."
             Write-Output 'Actual on-screen visibility and clean-PC execution require manual verification.'
           } finally {
             if (-not $process.HasExited) { Stop-Process -Id $process.Id }
