@@ -24,6 +24,12 @@ public static class DesktopNative {
     [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr handle);
     [DllImport("user32.dll")] public static extern uint GetClipboardSequenceNumber();
     [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr handle, IntPtr after, int x, int y, int width, int height, uint flags);
+    [DllImport("user32.dll")] public static extern IntPtr GetLastActivePopup(IntPtr handle);
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr handle);
+    [DllImport("user32.dll")] public static extern IntPtr GetDlgItem(IntPtr dialog, int id);
+    [DllImport("user32.dll")] public static extern bool IsWindowEnabled(IntPtr handle);
+    [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr handle, uint message, IntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassName(IntPtr handle, System.Text.StringBuilder name, int count);
 }
 '@
 [void][DesktopNative]::SetThreadDpiAwarenessContext([IntPtr]::new(-4))
@@ -71,13 +77,8 @@ function Find-Name($Parent, [string]$Name) {
     return $Parent.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
 }
 function Invoke-Control($Element) {
-    $pattern = $null
-    if ($Element.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$pattern)) {
-        ([System.Windows.Automation.InvokePattern]$pattern).Invoke()
-    } else {
-        ([System.Windows.Automation.LegacyIAccessiblePattern]$Element.GetCurrentPattern(
-            [System.Windows.Automation.LegacyIAccessiblePattern]::Pattern)).DoDefaultAction()
-    }
+    ([System.Windows.Automation.InvokePattern]$Element.GetCurrentPattern(
+        [System.Windows.Automation.InvokePattern]::Pattern)).Invoke()
 }
 function Set-Folder([string]$Path) {
     Scroll-ToTop
@@ -117,21 +118,18 @@ function Commit-Folder([string]$Path) {
     (Find-Control 'FormatPicker').SetFocus()
     Wait-For { (Test-Path $config -PathType Leaf) -and (Read-Config).Contains("SaveFolder=$Path") } 'folder persistence on focus loss without Start'
 }
-function Find-PickerButton([string[]]$Names) {
-    $desktop = [System.Windows.Automation.AutomationElement]::RootElement
-    $id = if ($Names -contains 'Cancel') { '2' } else { '1' }
-    $native = $desktop.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
-        [System.Windows.Automation.AndCondition]::new(
-            [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::AutomationIdProperty, $id),
-            [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ProcessIdProperty, $process.Id)))
-    if ($null -ne $native) { return $native }
-    foreach ($name in $Names) {
-        $condition = [System.Windows.Automation.PropertyCondition]::new(
-            [System.Windows.Automation.AutomationElement]::NameProperty, $name)
-        $button = $desktop.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
-        if ($null -ne $button) { return $button }
-    }
-    return $null
+function Picker-Dialog {
+    $dialog = [DesktopNative]::GetLastActivePopup($process.MainWindowHandle)
+    $name = [Text.StringBuilder]::new(256)
+    [void][DesktopNative]::GetClassName($dialog, $name, $name.Capacity)
+    if ($dialog -ne $process.MainWindowHandle -and $name.ToString() -eq '#32770') { return $dialog }
+    return [IntPtr]::Zero
+}
+function Click-PickerButton([IntPtr]$Dialog, [int]$Id) {
+    $button = [DesktopNative]::GetDlgItem($Dialog, $Id)
+    if ($button -eq [IntPtr]::Zero) { throw "Missing native folder-picker button $Id." }
+    [void][DesktopNative]::SetForegroundWindow($Dialog)
+    [void][DesktopNative]::SendMessage($button, 0xF5, [IntPtr]::Zero, [IntPtr]::Zero)
 }
 function Scroll-ToTop {
     $scroll = [System.Windows.Automation.ScrollPattern](Find-Control 'MainScroll').GetCurrentPattern(
@@ -247,14 +245,14 @@ try {
     [void](New-Item -ItemType Directory -Path $browseFolder)
     Scroll-ToTop
     Invoke-Control (Find-Name $root 'Browse')
-    Wait-For { $null -ne (Find-PickerButton @('Select Folder', 'Select folder', 'Choose this folder', 'Choose folder')) } 'the folder picker'
-    $choose = Find-PickerButton @('Select Folder', 'Select folder', 'Choose this folder', 'Choose folder')
-    (Find-PickerButton @('Cancel')).SetFocus()
+    Wait-For { (Picker-Dialog) -ne [IntPtr]::Zero } 'the native folder picker'
+    $picker = Picker-Dialog
+    [void][DesktopNative]::SetForegroundWindow($picker)
     [System.Windows.Forms.SendKeys]::SendWait('%d')
     [System.Windows.Forms.SendKeys]::SendWait($browseFolder)
     [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
-    Wait-For { (Find-PickerButton @('Select Folder', 'Select folder', 'Choose this folder', 'Choose folder')).Current.IsEnabled } 'enabled folder selection'
-    Invoke-Control (Find-PickerButton @('Select Folder', 'Select folder', 'Choose this folder', 'Choose folder'))
+    Wait-For { [DesktopNative]::IsWindowEnabled([DesktopNative]::GetDlgItem($picker, 1)) } 'enabled folder selection'
+    Click-PickerButton $picker 1
     Wait-For { (Folder-Value) -eq $browseFolder } 'Browse selection'
     Wait-For { (Read-Config).Contains("SaveFolder=$browseFolder") } 'immediate Browse persistence'
     Close-App
@@ -262,9 +260,9 @@ try {
     if ((Folder-Value) -ne $browseFolder) { throw 'Browse selection did not survive restart.' }
     $beforeCancel = Read-Config
     Invoke-Control (Find-Name $root 'Browse')
-    Wait-For { $null -ne (Find-PickerButton @('Cancel')) } 'folder picker cancellation'
-    Invoke-Control (Find-PickerButton @('Cancel'))
-    Wait-For { $null -eq (Find-PickerButton @('Cancel')) } 'the app after cancelling Browse'
+    Wait-For { (Picker-Dialog) -ne [IntPtr]::Zero } 'folder picker cancellation'
+    Click-PickerButton (Picker-Dialog) 2
+    Wait-For { (Picker-Dialog) -eq [IntPtr]::Zero } 'the app after cancelling Browse'
     if ((Folder-Value) -ne $browseFolder -or (Read-Config) -ne $beforeCancel) { throw 'Cancelling Browse changed the preference.' }
 
     [IO.File]::SetAttributes($config, [IO.FileAttributes]::ReadOnly)
