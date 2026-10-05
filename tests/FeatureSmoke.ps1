@@ -77,6 +77,15 @@ function Folder-Value {
     return ([System.Windows.Automation.ValuePattern](Find-Control 'FolderPath').GetCurrentPattern(
         [System.Windows.Automation.ValuePattern]::Pattern)).Current.Value
 }
+function Read-Config {
+    # Observe atomic replacement without holding a handle that forbids file deletion/replacement.
+    $stream = [IO.FileStream]::new($config, [IO.FileMode]::Open, [IO.FileAccess]::Read,
+        ([IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete))
+    try {
+        $reader = [IO.StreamReader]::new($stream, [Text.Encoding]::UTF8)
+        try { return $reader.ReadToEnd() } finally { $reader.Dispose() }
+    } finally { $stream.Dispose() }
+}
 function Start-App {
     $script:process = Start-Process (Join-Path $publish 'ClipboardSnapper.exe') -WorkingDirectory $testFolder -PassThru
     Wait-For { $process.Refresh(); $process.MainWindowHandle -ne [IntPtr]::Zero } 'the main window'
@@ -94,7 +103,7 @@ function Close-App {
 function Commit-Folder([string]$Path) {
     Set-Folder $Path
     (Find-Control 'FormatPicker').SetFocus()
-    Wait-For { (Test-Path $config -PathType Leaf) -and (Get-Content $config -Raw).Contains("SaveFolder=$Path") } 'folder persistence on focus loss without Start'
+    Wait-For { (Test-Path $config -PathType Leaf) -and (Read-Config).Contains("SaveFolder=$Path") } 'folder persistence on focus loss without Start'
 }
 function Find-PickerButton([string[]]$Names) {
     $desktop = [System.Windows.Automation.AutomationElement]::RootElement
@@ -211,7 +220,7 @@ try {
     $unrelated = "[Updates]`r`nEnabled=false`r`nInterval=weekly`r`n"
     [IO.File]::WriteAllText($config, $unrelated)
     Commit-Folder $testFolder
-    if (-not (Get-Content $config -Raw).Contains($unrelated)) { throw 'Folder persistence removed unrelated settings.' }
+    if (-not (Read-Config).Contains($unrelated)) { throw 'Folder persistence removed unrelated settings.' }
     if (Test-Path (Join-Path $testFolder 'config.ini')) { throw 'Settings were written to the working directory instead of beside the executable.' }
     Close-App
     Start-App
@@ -231,22 +240,22 @@ try {
     Start-Sleep -Milliseconds 500
     Invoke-Control (Find-PickerButton @('Select Folder', 'Select folder', 'Choose this folder', 'Choose folder'))
     Wait-For { (Folder-Value) -eq $browseFolder } 'Browse selection'
-    Wait-For { (Get-Content $config -Raw).Contains("SaveFolder=$browseFolder") } 'immediate Browse persistence'
+    Wait-For { (Read-Config).Contains("SaveFolder=$browseFolder") } 'immediate Browse persistence'
     Close-App
     Start-App
     if ((Folder-Value) -ne $browseFolder) { throw 'Browse selection did not survive restart.' }
-    $beforeCancel = Get-Content $config -Raw
+    $beforeCancel = Read-Config
     Invoke-Control (Find-Name $root 'Browse')
     Wait-For { $null -ne (Find-PickerButton @('Cancel')) } 'folder picker cancellation'
     Invoke-Control (Find-PickerButton @('Cancel'))
     Wait-For { $null -eq (Find-PickerButton @('Cancel')) } 'the app after cancelling Browse'
-    if ((Folder-Value) -ne $browseFolder -or (Get-Content $config -Raw) -ne $beforeCancel) { throw 'Cancelling Browse changed the preference.' }
+    if ((Folder-Value) -ne $browseFolder -or (Read-Config) -ne $beforeCancel) { throw 'Cancelling Browse changed the preference.' }
 
     [IO.File]::SetAttributes($config, [IO.FileAttributes]::ReadOnly)
     Set-Folder $testFolder
     (Find-Control 'FormatPicker').SetFocus()
     Wait-For { $null -ne (Find-Name (Find-Control 'SettingsMessage') 'Save folder settings') } 'configuration write warning'
-    if ((Folder-Value) -ne $testFolder -or (Get-Content $config -Raw) -ne $beforeCancel) { throw 'Write failure lost the session selection or changed the read-only config.' }
+    if ((Folder-Value) -ne $testFolder -or (Read-Config) -ne $beforeCancel) { throw 'Write failure lost the session selection or changed the read-only config.' }
     Close-App
     [IO.File]::SetAttributes($config, [IO.FileAttributes]::Normal)
     Start-App
@@ -257,7 +266,7 @@ try {
     Close-App
     [IO.File]::WriteAllText($config, $unrelated + "[Storage]`r`nSaveFolder=$unavailable`r`n")
     Start-App
-    if ((Folder-Value) -ne $defaultFolder -or -not (Get-Content $config -Raw).Contains("SaveFolder=$defaultFolder")) {
+    if ((Folder-Value) -ne $defaultFolder -or -not (Read-Config).Contains("SaveFolder=$defaultFolder")) {
         throw 'Unusable remembered folder did not fall back and update config.ini.'
     }
     if ($null -eq (Find-Name (Find-Control 'SettingsMessage') 'Save folder settings')) { throw 'Folder fallback is not explained.' }
