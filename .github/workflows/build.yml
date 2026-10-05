@@ -3,6 +3,8 @@ name: Build Windows x64
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -35,7 +37,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           dotnet restore tests/Contracts/Contracts.csproj --locked-mode
 
-      - name: Verify history races and real JPEG encoder
+      - name: Verify preferences, history races and real JPEG encoder
         run: dotnet run --project tests/Contracts/Contracts.csproj --framework net10.0-windows10.0.26100.0 --configuration Release --no-restore
 
       - name: Build Release

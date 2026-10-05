@@ -69,8 +69,44 @@ function Invoke-Control($Element) {
 }
 function Set-Folder([string]$Path) {
     Scroll-ToTop
+    (Find-Control 'FolderPath').SetFocus()
     ([System.Windows.Automation.ValuePattern](Find-Control 'FolderPath').GetCurrentPattern(
         [System.Windows.Automation.ValuePattern]::Pattern)).SetValue($Path)
+}
+function Folder-Value {
+    return ([System.Windows.Automation.ValuePattern](Find-Control 'FolderPath').GetCurrentPattern(
+        [System.Windows.Automation.ValuePattern]::Pattern)).Current.Value
+}
+function Start-App {
+    $script:process = Start-Process (Join-Path $publish 'ClipboardSnapper.exe') -WorkingDirectory $testFolder -PassThru
+    Wait-For { $process.Refresh(); $process.MainWindowHandle -ne [IntPtr]::Zero } 'the main window'
+    $script:root = [System.Windows.Automation.AutomationElement]::FromHandle($process.MainWindowHandle)
+    Wait-For { $null -ne (Find-Control 'StartButton') -and (Find-Control 'StartButton').Current.IsEnabled } 'loaded save-folder settings'
+    if ((Find-Control 'MonitoringStatus').Current.Name -ne 'Ready') { throw 'Initial state is not Ready.' }
+}
+function Close-App {
+    $window = [System.Windows.Automation.WindowPattern]$root.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern)
+    $window.Close()
+    if (-not $process.WaitForExit(15000)) { throw 'The app did not close after finishing saves/settings.' }
+    if ($process.ExitCode -ne 0) { throw "App close failed: $($process.ExitCode)" }
+    $script:root = $null
+}
+function Commit-Folder([string]$Path) {
+    Set-Folder $Path
+    (Find-Control 'FormatPicker').SetFocus()
+    Wait-For { (Test-Path $config -PathType Leaf) -and (Get-Content $config -Raw).Contains("SaveFolder=$Path") } 'folder persistence on focus loss without Start'
+}
+function Find-PickerButton([string[]]$Names) {
+    $desktop = [System.Windows.Automation.AutomationElement]::RootElement
+    foreach ($name in $Names) {
+        $condition = [System.Windows.Automation.AndCondition]::new(
+            [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty, $name),
+            [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                [System.Windows.Automation.ControlType]::Button))
+        $button = $desktop.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
+        if ($null -ne $button -and $button.Current.IsEnabled) { return $button }
+    }
+    return $null
 }
 function Scroll-ToTop {
     $scroll = [System.Windows.Automation.ScrollPattern](Find-Control 'MainScroll').GetCurrentPattern(
@@ -148,14 +184,16 @@ function Clear-History {
 }
 
 $publish = (Resolve-Path $PublishPath).Path
+$config = Join-Path $publish 'config.ini'
+$originalConfig = if (Test-Path $config -PathType Leaf) { [IO.File]::ReadAllBytes($config) } else { $null }
+if (Test-Path $config) { Remove-Item $config -Force }
 $testFolder = Join-Path $env:RUNNER_TEMP ('ClipboardSnapper-smoke-' + [Guid]::NewGuid().ToString('N'))
 [void](New-Item -ItemType Directory -Path $testFolder)
-$process = Start-Process (Join-Path $publish 'ClipboardSnapper.exe') -WorkingDirectory $publish -PassThru
+$process = $null
 try {
-    Wait-For { $process.Refresh(); $process.MainWindowHandle -ne [IntPtr]::Zero } 'the main window'
-    $root = [System.Windows.Automation.AutomationElement]::FromHandle($process.MainWindowHandle)
-    Wait-For { $null -ne (Find-Control 'StartButton') } 'the feature screen'
-    if ((Find-Control 'MonitoringStatus').Current.Name -ne 'Ready') { throw 'Initial state is not Ready.' }
+    Start-App
+    $defaultFolder = Join-Path ([Environment]::GetFolderPath('MyPictures')) 'ClipboardSnapper'
+    if ((Folder-Value) -ne $defaultFolder) { throw 'First launch did not use the default folder.' }
 
     $rect = [DesktopNative+Rect]::new()
     [void][DesktopNative]::GetWindowRect($process.MainWindowHandle, [ref]$rect)
@@ -169,6 +207,65 @@ try {
         throw "Unexpected physical window bounds: $($rect.Left),$($rect.Top),$($rect.Right),$($rect.Bottom)."
     }
     Write-Output "::notice::Initial physical bounds and work-area centering verified at $([DesktopNative]::GetDpiForWindow($process.MainWindowHandle)) DPI."
+
+    $unrelated = "[Updates]`r`nEnabled=false`r`nInterval=weekly`r`n"
+    [IO.File]::WriteAllText($config, $unrelated)
+    Commit-Folder $testFolder
+    if (-not (Get-Content $config -Raw).Contains($unrelated)) { throw 'Folder persistence removed unrelated settings.' }
+    if (Test-Path (Join-Path $testFolder 'config.ini')) { throw 'Settings were written to the working directory instead of beside the executable.' }
+    Close-App
+    Start-App
+    if ((Folder-Value) -ne $testFolder) { throw 'Manual path did not survive restart without Start or captures.' }
+
+    # Exercise the real Windows folder picker, including cancellation.
+    $browseFolder = Join-Path $testFolder 'browse-selected'
+    [void](New-Item -ItemType Directory -Path $browseFolder)
+    Scroll-ToTop
+    Invoke-Control (Find-Name $root 'Browse')
+    Wait-For { $null -ne (Find-PickerButton @('Select Folder', 'Select folder', 'Choose this folder', 'Choose folder')) } 'the folder picker'
+    $choose = Find-PickerButton @('Select Folder', 'Select folder', 'Choose this folder', 'Choose folder')
+    $choose.SetFocus()
+    [System.Windows.Forms.SendKeys]::SendWait('%d')
+    [System.Windows.Forms.SendKeys]::SendWait($browseFolder)
+    [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+    Start-Sleep -Milliseconds 500
+    Invoke-Control (Find-PickerButton @('Select Folder', 'Select folder', 'Choose this folder', 'Choose folder'))
+    Wait-For { (Folder-Value) -eq $browseFolder } 'Browse selection'
+    Wait-For { (Get-Content $config -Raw).Contains("SaveFolder=$browseFolder") } 'immediate Browse persistence'
+    Close-App
+    Start-App
+    if ((Folder-Value) -ne $browseFolder) { throw 'Browse selection did not survive restart.' }
+    $beforeCancel = Get-Content $config -Raw
+    Invoke-Control (Find-Name $root 'Browse')
+    Wait-For { $null -ne (Find-PickerButton @('Cancel')) } 'folder picker cancellation'
+    Invoke-Control (Find-PickerButton @('Cancel'))
+    Wait-For { $null -eq (Find-PickerButton @('Cancel')) } 'the app after cancelling Browse'
+    if ((Folder-Value) -ne $browseFolder -or (Get-Content $config -Raw) -ne $beforeCancel) { throw 'Cancelling Browse changed the preference.' }
+
+    [IO.File]::SetAttributes($config, [IO.FileAttributes]::ReadOnly)
+    Set-Folder $testFolder
+    (Find-Control 'FormatPicker').SetFocus()
+    Wait-For { $null -ne (Find-Name (Find-Control 'SettingsMessage') 'Save folder settings') } 'configuration write warning'
+    if ((Folder-Value) -ne $testFolder -or (Get-Content $config -Raw) -ne $beforeCancel) { throw 'Write failure lost the session selection or changed the read-only config.' }
+    Close-App
+    [IO.File]::SetAttributes($config, [IO.FileAttributes]::Normal)
+    Start-App
+    if ((Folder-Value) -ne $browseFolder) { throw 'Failed persistence was treated as durable after restart.' }
+
+    $unavailable = Join-Path $testFolder 'unavailable'
+    Set-Content $unavailable 'This file is not a folder.'
+    Close-App
+    [IO.File]::WriteAllText($config, $unrelated + "[Storage]`r`nSaveFolder=$unavailable`r`n")
+    Start-App
+    if ((Folder-Value) -ne $defaultFolder -or -not (Get-Content $config -Raw).Contains("SaveFolder=$defaultFolder")) {
+        throw 'Unusable remembered folder did not fall back and update config.ini.'
+    }
+    if ($null -eq (Find-Name (Find-Control 'SettingsMessage') 'Save folder settings')) { throw 'Folder fallback is not explained.' }
+    Close-App
+    Start-App
+    if ((Folder-Value) -ne $defaultFolder) { throw 'Fallback did not survive restart.' }
+    Remove-Item $unavailable
+    Write-Output '::notice::Folder UI persistence passed: manual focus loss without Start/captures, Browse selection/cancel, restart, executable-relative config, unrelated entries, read-only configuration warning/session selection and persisted default fallback.'
 
     foreach ($format in @(@('PNG', 'png'), @('JPEG', 'jpg'), @('BMP', 'bmp'))) {
         Set-Folder $testFolder
@@ -219,9 +316,11 @@ try {
     if (@(Get-ChildItem $testFolder -File).Count -ne $count) { throw 'An image was saved after Stop.' }
 
     $blocked = Join-Path $testFolder 'blocked'
-    Set-Content $blocked 'This file intentionally blocks a save directory.'
     Set-Folder (Join-Path $blocked 'images')
     Start-Monitoring
+    # Become unavailable after Start: accepted captures must not be redirected by preferences.
+    Remove-Item $blocked -Recurse -Force
+    Set-Content $blocked 'This file intentionally blocks a save directory.'
     Copy-Image
     Wait-For { $null -ne (Find-Name (Find-Control 'HistoryList') 'Failed') } 'the save failure entry'
     Invoke-Control (Find-Name (Find-Control 'HistoryList') 'Details')
@@ -253,10 +352,10 @@ try {
         (Find-Name $root 'Browse').Current.BoundingRectangle.Top -gt (Find-Control 'FolderPath').Current.BoundingRectangle.Top
     } 'narrow layout reflow'
     Write-Output '::notice::Feature smoke passed: PNG/JPEG/BMP pixels, JPEG quality visibility/default/range/edit/freeze, repeated Clear while monitoring and stopped, fresh captures/failures after Clear, file hashes and clipboard retention, preview/history, failure details, maximizing and narrow layout reflow.'
-    $window.Close()
-    if (-not $process.WaitForExit(15000)) { throw 'The app did not close after finishing saves.' }
-    if ($process.ExitCode -ne 0) { throw "App close failed: $($process.ExitCode)" }
+    Close-App
 } finally {
-    if (-not $process.HasExited) { Stop-Process -Id $process.Id }
+    if ($null -ne $process -and -not $process.HasExited) { Stop-Process -Id $process.Id }
+    if (Test-Path $config) { Remove-Item $config -Force }
+    if ($null -ne $originalConfig) { [IO.File]::WriteAllBytes($config, $originalConfig) }
     Remove-Item $testFolder -Recurse -Force
 }

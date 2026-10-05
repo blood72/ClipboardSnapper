@@ -3,6 +3,7 @@ using ClipboardSnapper;
 try
 {
     await SessionContracts.RunAsync();
+    await PreferenceContracts.RunAsync();
 #if WINDOWS
     await EncoderContracts.RunAsync();
 #endif

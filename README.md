@@ -28,13 +28,55 @@ saved image, and recent successes and failures.
    the cleared screen; images copied after Clear appear normally. This is a screen
    cleanup action, not secure deletion. The save-folder setting is kept.
 
-Settings and the latest 100 history rows are session-only. Files remain on disk.
+The save folder is remembered in `config.ini` beside the executable. Image format,
+JPEG quality and the latest 100 history rows are session-only. Files remain on disk.
 Closing the window waits for accepted reads and writes to finish. JPEG images
 are composited onto white because JPEG cannot store transparency. Failed writes
 use temporary files and do not expose a partially written final image.
 JPEG quality is passed to `BitmapEncoder` as the `ImageQuality` option, dividing
 the integer slider value by 100 to produce a single-precision value from 0.01 to
 1.0. It is not applied to PNG or BMP.
+
+## Remembered save folder
+
+**Browse** saves the selected folder immediately; a manually entered path is saved
+when the path field loses focus. Neither Start nor a captured/saved image is
+required. Cancelling Browse keeps the previous selection. The next launch restores
+the folder and remains in **Ready**, with monitoring off.
+
+The configuration is portable: `config.ini` lives in the executable's directory,
+regardless of the working directory used to launch the app. Keep it alongside the
+app when moving or updating the application. The app creates it when a folder
+preference is saved; it is not a required runtime/deployment file.
+
+```ini
+[Storage]
+SaveFolder=C:\Users\YourName\Pictures\ClipboardSnapper
+```
+
+Folder usability is checked during restoration, selection/focus loss and Start.
+Missing folders are created if possible. A short-lived probe checks write access
+and is removed automatically. Invalid paths, disconnected drives and inaccessible
+folders fall back to the current Windows user's `Pictures\ClipboardSnapper`;
+the field and saved preference both change to this default, with a warning. If the
+default is also unusable, choose another folder before starting. A destination that
+becomes unavailable during monitoring still reports save failures; already accepted
+images and queued saves keep their original options and are never redirected.
+
+The file uses INI sections and `key=value` entries (UTF-8 on writes); `Storage` and
+`SaveFolder` are case-insensitive. Unrelated entries and comments are retained for
+future preferences, including updater settings. No updater is implemented here.
+Updates use a temporary file in the same directory followed by file replacement.
+An absent configuration uses the default. An unreadable or malformed configuration
+uses the default and shows a warning without overwriting the original file.
+Malformed section headers/entries and duplicate `SaveFolder` keys are rejected.
+
+Use a writable application folder to remember changes. If `config.ini` cannot be
+written, the current usable selection still works for this session and the screen
+warns that it was not remembered. The app does not request elevation or silently
+move configuration elsewhere. Saved images and clipboard contents are unaffected.
+Settings I/O and validation run off the UI thread, separately from clipboard reads
+and the image-saving worker; rapid preference updates are serialized.
 
 ## Window and processing behavior
 
@@ -138,7 +180,7 @@ build targets so the app's resource index is included in the output folder.
 
 ## CI validation
 
-The workflow runs on `windows-2022` for pushes to `main` and manual dispatches.
+The workflow runs on `windows-2022` for pull requests, pushes to `main` and manual dispatches.
 It restores locked dependencies, builds Release, publishes, bundles the CRT,
 checks required output files and self-contained .NET configuration, and launches
 the published executable. The smoke test checks that the process remains alive,
@@ -156,6 +198,12 @@ exercise the real `BitmapEncoder` at quality 1/90/100 and compare file sizes and
 JPEG quantization tables, default 90 and white transparency. UI Automation checks
 Clear while monitoring/stopped, fresh successes/failures, unchanged file hashes
 and clipboard sequence, and JPEG quality visibility/editing restrictions.
+Preference contracts cover persisted defaults, invalid/unavailable and missing
+folders, Unicode paths, unrelated INI entries, malformed/read-only/write-failed
+configuration and existing-file retention. UI Automation checks manual focus-loss
+persistence and Browse selection/cancellation without Start or captures, restores
+the path across process restarts from a different working directory, checks the
+read-only configuration warning, and verifies persistent fallback to the default.
 The artifact is uploaded
 only after these checks pass. CI then downloads that artifact and compares
 every file's relative path and SHA-256 hash with the publish output, including a
