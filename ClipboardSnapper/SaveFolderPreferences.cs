@@ -152,7 +152,7 @@ public sealed class SaveFolderPreferences(string configPath, string defaultFolde
     }
 
     private static bool IsStorageError(Exception exception) => exception is
-        IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException or System.Security.SecurityException;
+        IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or NotSupportedException or System.Security.SecurityException;
 
     private static string Join(string? first, string second) => first is null ? second : $"{first}\n{second}";
 }
