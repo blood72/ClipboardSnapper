@@ -58,6 +58,7 @@ public sealed partial class MainWindow : Window
     {
         var previous = _folderUpdate;
         var revision = ++_folderRevision;
+        var generation = _monitor.History.Generation;
         return _folderUpdate = ApplyAsync();
 
         async Task<FolderPreference> ApplyAsync()
@@ -68,10 +69,13 @@ public sealed partial class MainWindow : Window
             if (!_closing && revision == _folderRevision && (input is null || FolderPath.Text == input))
             {
                 FolderPath.Text = result.Folder;
-                SettingsMessage.Title = result.CanUse ? "Save folder settings" : "Save folder unavailable";
-                SettingsMessage.Message = result.Warning ?? "";
-                SettingsMessage.Severity = result.CanUse ? InfoBarSeverity.Warning : InfoBarSeverity.Error;
-                SettingsMessage.IsOpen = result.Warning is not null;
+                if (_monitor.History.IsCurrent(generation))
+                {
+                    SettingsMessage.Title = result.CanUse ? "Save folder settings" : "Save folder unavailable";
+                    SettingsMessage.Message = result.Warning ?? "";
+                    SettingsMessage.Severity = result.CanUse ? InfoBarSeverity.Warning : InfoBarSeverity.Error;
+                    SettingsMessage.IsOpen = result.Warning is not null;
+                }
             }
             return result;
         }
