@@ -376,9 +376,23 @@ try {
     } 'narrow layout reflow'
     Write-Output '::notice::Feature smoke passed: PNG/JPEG/BMP pixels, JPEG quality visibility/default/range/edit/freeze, repeated Clear while monitoring and stopped, fresh captures/failures after Clear, file hashes and clipboard retention, preview/history, failure details, maximizing and narrow layout reflow.'
     Close-App
+} catch {
+    $trace = $_.ScriptStackTrace -replace '\r?\n', ' | '
+    $message = $_.Exception.Message -replace '\r?\n', ' | '
+    Write-Output "::error::Feature failure before cleanup: $message / $trace"
+    throw
 } finally {
-    if ($null -ne $process -and -not $process.HasExited) { Stop-Process -Id $process.Id }
+    if ($null -ne $process -and -not $process.HasExited) {
+        Stop-Process -Id $process.Id
+        [void]$process.WaitForExit(15000)
+    }
     if (Test-Path $config) { Remove-Item $config -Force }
     if ($null -ne $originalConfig) { [IO.File]::WriteAllBytes($config, $originalConfig) }
-    Remove-Item $testFolder -Recurse -Force
+    for ($attempt = 0; $attempt -lt 10 -and (Test-Path $testFolder); $attempt++) {
+        try { Remove-Item $testFolder -Recurse -Force }
+        catch {
+            if ($attempt -eq 9) { Write-Output "::warning::Temporary smoke folder cleanup failed: $($_.Exception.Message)" }
+            else { Start-Sleep -Milliseconds 200 }
+        }
+    }
 }
