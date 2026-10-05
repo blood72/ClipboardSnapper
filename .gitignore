@@ -3,3 +3,5 @@ obj/
 artifacts/
 .vs/
 *.user
+config.ini
+config.ini.*.tmp

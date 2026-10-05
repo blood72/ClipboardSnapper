@@ -16,7 +16,12 @@ public sealed partial class MainWindow : Window
 {
     private readonly ClipboardMonitor _monitor = new();
     private readonly ObservableCollection<HistoryItem> _history = [];
+    private readonly SaveFolderPreferences _preferences = SaveFolderPreferences.ForCurrentProcess();
     private readonly DispatcherQueueTimer _refresh;
+    private Task<FolderPreference>? _folderUpdate;
+    private int _folderRevision;
+    private bool _folderReady;
+    private bool _starting;
     private SaveResult? _previewAttempt;
     private CancellationTokenSource? _previewCancellation;
     private ContentDialog? _detailsDialog;
@@ -31,26 +36,69 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
         UpdateQualityVisibility();
         WindowPlacement.Apply(AppWindow);
-        FolderPath.Text = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "ClipboardSnapper");
+        FolderPath.Text = _preferences.DefaultFolder;
         HistoryList.ItemsSource = _history;
         _refresh = DispatcherQueue.CreateTimer();
         _refresh.Interval = TimeSpan.FromMilliseconds(250);
         _refresh.Tick += RefreshResults;
         _refresh.Start();
         AppWindow.Closing += OnClosing;
+        SetControls();
+        _ = InitializeFolderAsync();
+    }
+
+    private async Task InitializeFolderAsync()
+    {
+        await UpdateFolderAsync(null);
+        _folderReady = true;
+        if (!_closing) SetControls();
+    }
+
+    private Task<FolderPreference> UpdateFolderAsync(string? input)
+    {
+        var previous = _folderUpdate;
+        var revision = ++_folderRevision;
+        var generation = _monitor.History.Generation;
+        return _folderUpdate = ApplyAsync();
+
+        async Task<FolderPreference> ApplyAsync()
+        {
+            // Serialize settings writes independently of the image-saving worker.
+            if (previous is not null) await previous;
+            var result = input is null ? await _preferences.LoadAsync() : await _preferences.SaveAsync(input);
+            if (!_closing && revision == _folderRevision && (input is null || FolderPath.Text == input))
+            {
+                FolderPath.Text = result.Folder;
+                if (_monitor.History.IsCurrent(generation))
+                {
+                    SettingsMessage.Title = result.CanUse ? "Save folder settings" : "Save folder unavailable";
+                    SettingsMessage.Message = result.Warning ?? "";
+                    SettingsMessage.Severity = result.CanUse ? InfoBarSeverity.Warning : InfoBarSeverity.Error;
+                    SettingsMessage.IsOpen = result.Warning is not null;
+                }
+            }
+            return result;
+        }
+    }
+
+    private async void FolderPath_LostFocus(object sender, RoutedEventArgs args)
+    {
+        if (!_folderReady || _closing || _starting || _watching) return;
+        await UpdateFolderAsync(FolderPath.Text);
     }
 
     private async void Start_Click(object sender, RoutedEventArgs args)
     {
-        if (_closing) return;
+        if (_closing || _starting || !_folderReady) return;
         var generation = _monitor.History.Generation;
-        StartButton.IsEnabled = false;
+        _starting = true;
+        SetControls();
         try
         {
-            var folder = FolderPath.Text.Trim();
-            if (!Path.IsPathFullyQualified(folder))
-                throw new ArgumentException("Choose an absolute save folder path.");
-            folder = Path.GetFullPath(folder);
+            var preference = await UpdateFolderAsync(FolderPath.Text);
+            if (_closing) return;
+            if (!preference.CanUse) throw new IOException("Choose a usable save folder before starting monitoring.");
+            var folder = preference.Folder;
             var options = new SaveOptions(folder, (ImageFormat)FormatPicker.SelectedIndex,
                 (int)Math.Round(JpegQuality.Value));
             await _monitor.StartAsync(options);
@@ -63,8 +111,8 @@ public sealed partial class MainWindow : Window
         catch (Exception exception)
         {
             ShowResult("Could not start monitoring", exception.Message, InfoBarSeverity.Error, generation);
-            SetControls();
         }
+        finally { _starting = false; if (!_closing) SetControls(); }
     }
 
     private void Root_SizeChanged(object sender, SizeChangedEventArgs args)
@@ -91,12 +139,13 @@ public sealed partial class MainWindow : Window
 
     private void SetControls()
     {
-        StartButton.IsEnabled = !_watching;
+        var editable = _folderReady && !_watching && !_starting;
+        StartButton.IsEnabled = editable;
         StopButton.IsEnabled = _watching;
-        FolderPath.IsEnabled = !_watching;
-        BrowseButton.IsEnabled = !_watching;
-        FormatPicker.IsEnabled = !_watching;
-        JpegQuality.IsEnabled = !_watching;
+        FolderPath.IsEnabled = editable;
+        BrowseButton.IsEnabled = editable;
+        FormatPicker.IsEnabled = editable;
+        JpegQuality.IsEnabled = editable;
     }
 
     private void Format_SelectionChanged(object sender, SelectionChangedEventArgs args) => UpdateQualityVisibility();
@@ -123,6 +172,9 @@ public sealed partial class MainWindow : Window
         ResultMessage.IsOpen = false;
         ResultMessage.Title = "";
         ResultMessage.Message = "";
+        SettingsMessage.IsOpen = false;
+        SettingsMessage.Message = "";
+        SettingsMessage.Title = "";
         _detailsDialog?.Hide();
     }
 
@@ -132,11 +184,17 @@ public sealed partial class MainWindow : Window
         var generation = _monitor.History.Generation;
         try
         {
-            var picker = new FolderPicker();
+            var picker = new FolderPicker { CommitButtonText = "Select Folder" };
             picker.FileTypeFilter.Add("*");
             WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
+            if (_folderUpdate is not null) await _folderUpdate;
+            if (_closing) return;
             var folder = await picker.PickSingleFolderAsync();
-            if (folder is not null) FolderPath.Text = folder.Path;
+            if (folder is not null && !_closing)
+            {
+                FolderPath.Text = folder.Path;
+                await UpdateFolderAsync(folder.Path);
+            }
         }
         catch (Exception exception) { ShowResult("Could not choose a folder", exception.Message, InfoBarSeverity.Error, generation); }
     }
@@ -247,7 +305,12 @@ public sealed partial class MainWindow : Window
         MonitoringStatus.Text = "Finishing saves";
         _refresh.Stop();
         _previewCancellation?.Cancel();
-        try { await _monitor.DisposeAsync(); }
+        try
+        {
+            if (_folderReady && !_watching && !_starting) await UpdateFolderAsync(FolderPath.Text);
+            if (_folderUpdate is not null) await _folderUpdate;
+            await _monitor.DisposeAsync();
+        }
         finally { _allowClose = true; Close(); }
     }
 }

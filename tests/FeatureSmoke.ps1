@@ -24,6 +24,12 @@ public static class DesktopNative {
     [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr handle);
     [DllImport("user32.dll")] public static extern uint GetClipboardSequenceNumber();
     [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr handle, IntPtr after, int x, int y, int width, int height, uint flags);
+    [DllImport("user32.dll")] public static extern IntPtr GetLastActivePopup(IntPtr handle);
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr handle);
+    [DllImport("user32.dll")] public static extern IntPtr GetDlgItem(IntPtr dialog, int id);
+    [DllImport("user32.dll")] public static extern bool IsWindowEnabled(IntPtr handle);
+    [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr handle, uint message, IntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassName(IntPtr handle, System.Text.StringBuilder name, int count);
 }
 '@
 [void][DesktopNative]::SetThreadDpiAwarenessContext([IntPtr]::new(-4))
@@ -50,7 +56,14 @@ function Wait-For($Condition, [string]$Description) {
                 [System.Windows.Automation.ControlType]::Text))
         $screen = ($texts | ForEach-Object { $_.Current.Name }) -join ' | '
     }
-    throw "Timed out waiting for $Description. Screen text: $screen"
+    $desktop = [System.Windows.Automation.AutomationElement]::RootElement
+    $windows = $desktop.FindAll([System.Windows.Automation.TreeScope]::Children,
+        [System.Windows.Automation.Condition]::TrueCondition)
+    $buttons = $desktop.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+        [System.Windows.Automation.Condition]::TrueCondition)
+    $desktopDetails = (($windows | ForEach-Object { "Window: $($_.Current.Name) / $($_.Current.ClassName)" }) +
+        ($buttons | Select-Object -First 220 | ForEach-Object { "Control: $($_.Current.Name) / $($_.Current.AutomationId) / $($_.Current.ControlType.ProgrammaticName) / enabled=$($_.Current.IsEnabled)" })) -join ' | '
+    throw "Timed out waiting for $Description. Screen text: $screen. Desktop: $desktopDetails"
 }
 function Find-Control([string]$Id) {
     $condition = [System.Windows.Automation.PropertyCondition]::new(
@@ -69,8 +82,54 @@ function Invoke-Control($Element) {
 }
 function Set-Folder([string]$Path) {
     Scroll-ToTop
+    (Find-Control 'FolderPath').SetFocus()
     ([System.Windows.Automation.ValuePattern](Find-Control 'FolderPath').GetCurrentPattern(
         [System.Windows.Automation.ValuePattern]::Pattern)).SetValue($Path)
+}
+function Folder-Value {
+    return ([System.Windows.Automation.ValuePattern](Find-Control 'FolderPath').GetCurrentPattern(
+        [System.Windows.Automation.ValuePattern]::Pattern)).Current.Value
+}
+function Read-Config {
+    # Observe atomic replacement without holding a handle that forbids file deletion/replacement.
+    $stream = [IO.FileStream]::new($config, [IO.FileMode]::Open, [IO.FileAccess]::Read,
+        ([IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete))
+    try {
+        $reader = [IO.StreamReader]::new($stream, [Text.Encoding]::UTF8)
+        try { return $reader.ReadToEnd() } finally { $reader.Dispose() }
+    } finally { $stream.Dispose() }
+}
+function Start-App {
+    $script:process = Start-Process (Join-Path $publish 'ClipboardSnapper.exe') -WorkingDirectory $testFolder -PassThru
+    Wait-For { $process.Refresh(); $process.MainWindowHandle -ne [IntPtr]::Zero } 'the main window'
+    $script:root = [System.Windows.Automation.AutomationElement]::FromHandle($process.MainWindowHandle)
+    Wait-For { $null -ne (Find-Control 'StartButton') -and (Find-Control 'StartButton').Current.IsEnabled } 'loaded save-folder settings'
+    if ((Find-Control 'MonitoringStatus').Current.Name -ne 'Ready') { throw 'Initial state is not Ready.' }
+}
+function Close-App {
+    $window = [System.Windows.Automation.WindowPattern]$root.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern)
+    $window.Close()
+    if (-not $process.WaitForExit(15000)) { throw 'The app did not close after finishing saves/settings.' }
+    if ($process.ExitCode -ne 0) { throw "App close failed: $($process.ExitCode)" }
+    $script:root = $null
+}
+function Commit-Folder([string]$Path) {
+    Set-Folder $Path
+    (Find-Control 'FormatPicker').SetFocus()
+    Wait-For { (Test-Path $config -PathType Leaf) -and (Read-Config).Contains("SaveFolder=$Path") } 'folder persistence on focus loss without Start'
+}
+function Picker-Dialog {
+    $dialog = [DesktopNative]::GetLastActivePopup($process.MainWindowHandle)
+    $name = [Text.StringBuilder]::new(256)
+    [void][DesktopNative]::GetClassName($dialog, $name, $name.Capacity)
+    if ($dialog -ne $process.MainWindowHandle -and $name.ToString() -eq '#32770') { return $dialog }
+    return [IntPtr]::Zero
+}
+function Click-PickerButton([IntPtr]$Dialog, [int]$Id) {
+    $button = [DesktopNative]::GetDlgItem($Dialog, $Id)
+    if ($button -eq [IntPtr]::Zero) { throw "Missing native folder-picker button $Id." }
+    [void][DesktopNative]::SetForegroundWindow($Dialog)
+    [void][DesktopNative]::SendMessage($button, 0xF5, [IntPtr]::Zero, [IntPtr]::Zero)
 }
 function Scroll-ToTop {
     $scroll = [System.Windows.Automation.ScrollPattern](Find-Control 'MainScroll').GetCurrentPattern(
@@ -148,14 +207,16 @@ function Clear-History {
 }
 
 $publish = (Resolve-Path $PublishPath).Path
+$config = Join-Path $publish 'config.ini'
+$originalConfig = if (Test-Path $config -PathType Leaf) { [IO.File]::ReadAllBytes($config) } else { $null }
+if (Test-Path $config) { Remove-Item $config -Force }
 $testFolder = Join-Path $env:RUNNER_TEMP ('ClipboardSnapper-smoke-' + [Guid]::NewGuid().ToString('N'))
 [void](New-Item -ItemType Directory -Path $testFolder)
-$process = Start-Process (Join-Path $publish 'ClipboardSnapper.exe') -WorkingDirectory $publish -PassThru
+$process = $null
 try {
-    Wait-For { $process.Refresh(); $process.MainWindowHandle -ne [IntPtr]::Zero } 'the main window'
-    $root = [System.Windows.Automation.AutomationElement]::FromHandle($process.MainWindowHandle)
-    Wait-For { $null -ne (Find-Control 'StartButton') } 'the feature screen'
-    if ((Find-Control 'MonitoringStatus').Current.Name -ne 'Ready') { throw 'Initial state is not Ready.' }
+    Start-App
+    $defaultFolder = Join-Path ([Environment]::GetFolderPath('MyPictures')) 'ClipboardSnapper'
+    if ((Folder-Value) -ne $defaultFolder) { throw 'First launch did not use the default folder.' }
 
     $rect = [DesktopNative+Rect]::new()
     [void][DesktopNative]::GetWindowRect($process.MainWindowHandle, [ref]$rect)
@@ -169,6 +230,65 @@ try {
         throw "Unexpected physical window bounds: $($rect.Left),$($rect.Top),$($rect.Right),$($rect.Bottom)."
     }
     Write-Output "::notice::Initial physical bounds and work-area centering verified at $([DesktopNative]::GetDpiForWindow($process.MainWindowHandle)) DPI."
+
+    $unrelated = "[Updates]`r`nEnabled=false`r`nInterval=weekly`r`n"
+    [IO.File]::WriteAllText($config, $unrelated)
+    Commit-Folder $testFolder
+    if (-not (Read-Config).Contains($unrelated)) { throw 'Folder persistence removed unrelated settings.' }
+    if (Test-Path (Join-Path $testFolder 'config.ini')) { throw 'Settings were written to the working directory instead of beside the executable.' }
+    Close-App
+    Start-App
+    if ((Folder-Value) -ne $testFolder) { throw 'Manual path did not survive restart without Start or captures.' }
+
+    # Exercise the real Windows folder picker, including cancellation.
+    $browseFolder = Join-Path $testFolder 'browse-selected'
+    [void](New-Item -ItemType Directory -Path $browseFolder)
+    Scroll-ToTop
+    Invoke-Control (Find-Name $root 'Browse')
+    Wait-For { (Picker-Dialog) -ne [IntPtr]::Zero } 'the native folder picker'
+    $picker = Picker-Dialog
+    [void][DesktopNative]::SetForegroundWindow($picker)
+    [System.Windows.Forms.SendKeys]::SendWait('%d')
+    [System.Windows.Forms.SendKeys]::SendWait($browseFolder)
+    [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+    Wait-For { [DesktopNative]::IsWindowEnabled([DesktopNative]::GetDlgItem($picker, 1)) } 'enabled folder selection'
+    Click-PickerButton $picker 1
+    Wait-For { (Folder-Value) -eq $browseFolder } 'Browse selection'
+    Wait-For { (Read-Config).Contains("SaveFolder=$browseFolder") } 'immediate Browse persistence'
+    Close-App
+    Start-App
+    if ((Folder-Value) -ne $browseFolder) { throw 'Browse selection did not survive restart.' }
+    $beforeCancel = Read-Config
+    Invoke-Control (Find-Name $root 'Browse')
+    Wait-For { (Picker-Dialog) -ne [IntPtr]::Zero } 'folder picker cancellation'
+    Click-PickerButton (Picker-Dialog) 2
+    Wait-For { (Picker-Dialog) -eq [IntPtr]::Zero } 'the app after cancelling Browse'
+    if ((Folder-Value) -ne $browseFolder -or (Read-Config) -ne $beforeCancel) { throw 'Cancelling Browse changed the preference.' }
+
+    [IO.File]::SetAttributes($config, [IO.FileAttributes]::ReadOnly)
+    Set-Folder $testFolder
+    (Find-Control 'FormatPicker').SetFocus()
+    Wait-For { $null -ne (Find-Name (Find-Control 'SettingsMessage') 'Save folder settings') } 'configuration write warning'
+    if ((Folder-Value) -ne $testFolder -or (Read-Config) -ne $beforeCancel) { throw 'Write failure lost the session selection or changed the read-only config.' }
+    Close-App
+    [IO.File]::SetAttributes($config, [IO.FileAttributes]::Normal)
+    Start-App
+    if ((Folder-Value) -ne $browseFolder) { throw 'Failed persistence was treated as durable after restart.' }
+
+    $unavailable = Join-Path $testFolder 'unavailable'
+    Set-Content $unavailable 'This file is not a folder.'
+    Close-App
+    [IO.File]::WriteAllText($config, $unrelated + "[Storage]`r`nSaveFolder=$unavailable`r`n")
+    Start-App
+    if ((Folder-Value) -ne $defaultFolder -or -not (Read-Config).Contains("SaveFolder=$defaultFolder")) {
+        throw 'Unusable remembered folder did not fall back and update config.ini.'
+    }
+    if ($null -eq (Find-Name (Find-Control 'SettingsMessage') 'Save folder settings')) { throw 'Folder fallback is not explained.' }
+    Close-App
+    Start-App
+    if ((Folder-Value) -ne $defaultFolder) { throw 'Fallback did not survive restart.' }
+    Remove-Item $unavailable
+    Write-Output '::notice::Folder UI persistence passed: manual focus loss without Start/captures, Browse selection/cancel, restart, executable-relative config, unrelated entries, read-only configuration warning/session selection and persisted default fallback.'
 
     foreach ($format in @(@('PNG', 'png'), @('JPEG', 'jpg'), @('BMP', 'bmp'))) {
         Set-Folder $testFolder
@@ -219,9 +339,11 @@ try {
     if (@(Get-ChildItem $testFolder -File).Count -ne $count) { throw 'An image was saved after Stop.' }
 
     $blocked = Join-Path $testFolder 'blocked'
-    Set-Content $blocked 'This file intentionally blocks a save directory.'
     Set-Folder (Join-Path $blocked 'images')
     Start-Monitoring
+    # Become unavailable after Start: accepted captures must not be redirected by preferences.
+    Remove-Item $blocked -Recurse -Force
+    Set-Content $blocked 'This file intentionally blocks a save directory.'
     Copy-Image
     Wait-For { $null -ne (Find-Name (Find-Control 'HistoryList') 'Failed') } 'the save failure entry'
     Invoke-Control (Find-Name (Find-Control 'HistoryList') 'Details')
@@ -253,10 +375,24 @@ try {
         (Find-Name $root 'Browse').Current.BoundingRectangle.Top -gt (Find-Control 'FolderPath').Current.BoundingRectangle.Top
     } 'narrow layout reflow'
     Write-Output '::notice::Feature smoke passed: PNG/JPEG/BMP pixels, JPEG quality visibility/default/range/edit/freeze, repeated Clear while monitoring and stopped, fresh captures/failures after Clear, file hashes and clipboard retention, preview/history, failure details, maximizing and narrow layout reflow.'
-    $window.Close()
-    if (-not $process.WaitForExit(15000)) { throw 'The app did not close after finishing saves.' }
-    if ($process.ExitCode -ne 0) { throw "App close failed: $($process.ExitCode)" }
+    Close-App
+} catch {
+    $trace = $_.ScriptStackTrace -replace '\r?\n', ' | '
+    $message = $_.Exception.Message -replace '\r?\n', ' | '
+    Write-Output "::error::Feature failure before cleanup: $message / $trace"
+    throw
 } finally {
-    if (-not $process.HasExited) { Stop-Process -Id $process.Id }
-    Remove-Item $testFolder -Recurse -Force
+    if ($null -ne $process -and -not $process.HasExited) {
+        Stop-Process -Id $process.Id
+        [void]$process.WaitForExit(15000)
+    }
+    if (Test-Path $config) { Remove-Item $config -Force }
+    if ($null -ne $originalConfig) { [IO.File]::WriteAllBytes($config, $originalConfig) }
+    for ($attempt = 0; $attempt -lt 10 -and (Test-Path $testFolder); $attempt++) {
+        try { Remove-Item $testFolder -Recurse -Force }
+        catch {
+            if ($attempt -eq 9) { Write-Output "::warning::Temporary smoke folder cleanup failed: $($_.Exception.Message)" }
+            else { Start-Sleep -Milliseconds 200 }
+        }
+    }
 }
