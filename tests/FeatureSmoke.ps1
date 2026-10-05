@@ -54,11 +54,9 @@ function Wait-For($Condition, [string]$Description) {
     $windows = $desktop.FindAll([System.Windows.Automation.TreeScope]::Children,
         [System.Windows.Automation.Condition]::TrueCondition)
     $buttons = $desktop.FindAll([System.Windows.Automation.TreeScope]::Descendants,
-        [System.Windows.Automation.PropertyCondition]::new(
-            [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-            [System.Windows.Automation.ControlType]::Button))
+        [System.Windows.Automation.Condition]::TrueCondition)
     $desktopDetails = (($windows | ForEach-Object { "Window: $($_.Current.Name) / $($_.Current.ClassName)" }) +
-        ($buttons | ForEach-Object { "Button: $($_.Current.Name) / $($_.Current.AutomationId) / enabled=$($_.Current.IsEnabled)" })) -join ' | '
+        ($buttons | Select-Object -First 220 | ForEach-Object { "Control: $($_.Current.Name) / $($_.Current.AutomationId) / $($_.Current.ControlType.ProgrammaticName) / enabled=$($_.Current.IsEnabled)" })) -join ' | '
     throw "Timed out waiting for $Description. Screen text: $screen. Desktop: $desktopDetails"
 }
 function Find-Control([string]$Id) {
@@ -73,8 +71,13 @@ function Find-Name($Parent, [string]$Name) {
     return $Parent.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
 }
 function Invoke-Control($Element) {
-    ([System.Windows.Automation.InvokePattern]$Element.GetCurrentPattern(
-        [System.Windows.Automation.InvokePattern]::Pattern)).Invoke()
+    $pattern = $null
+    if ($Element.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$pattern)) {
+        ([System.Windows.Automation.InvokePattern]$pattern).Invoke()
+    } else {
+        ([System.Windows.Automation.LegacyIAccessiblePattern]$Element.GetCurrentPattern(
+            [System.Windows.Automation.LegacyIAccessiblePattern]::Pattern)).DoDefaultAction()
+    }
 }
 function Set-Folder([string]$Path) {
     Scroll-ToTop
@@ -116,11 +119,15 @@ function Commit-Folder([string]$Path) {
 }
 function Find-PickerButton([string[]]$Names) {
     $desktop = [System.Windows.Automation.AutomationElement]::RootElement
+    $id = if ($Names -contains 'Cancel') { '2' } else { '1' }
+    $native = $desktop.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+        [System.Windows.Automation.AndCondition]::new(
+            [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::AutomationIdProperty, $id),
+            [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ProcessIdProperty, $process.Id)))
+    if ($null -ne $native) { return $native }
     foreach ($name in $Names) {
-        $condition = [System.Windows.Automation.AndCondition]::new(
-            [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty, $name),
-            [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-                [System.Windows.Automation.ControlType]::Button))
+        $condition = [System.Windows.Automation.PropertyCondition]::new(
+            [System.Windows.Automation.AutomationElement]::NameProperty, $name)
         $button = $desktop.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
         if ($null -ne $button) { return $button }
     }
