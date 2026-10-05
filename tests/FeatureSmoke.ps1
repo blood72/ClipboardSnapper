@@ -50,7 +50,16 @@ function Wait-For($Condition, [string]$Description) {
                 [System.Windows.Automation.ControlType]::Text))
         $screen = ($texts | ForEach-Object { $_.Current.Name }) -join ' | '
     }
-    throw "Timed out waiting for $Description. Screen text: $screen"
+    $desktop = [System.Windows.Automation.AutomationElement]::RootElement
+    $windows = $desktop.FindAll([System.Windows.Automation.TreeScope]::Children,
+        [System.Windows.Automation.Condition]::TrueCondition)
+    $buttons = $desktop.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+        [System.Windows.Automation.PropertyCondition]::new(
+            [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+            [System.Windows.Automation.ControlType]::Button))
+    $desktopDetails = (($windows | ForEach-Object { "Window: $($_.Current.Name) / $($_.Current.ClassName)" }) +
+        ($buttons | ForEach-Object { "Button: $($_.Current.Name) / $($_.Current.AutomationId) / enabled=$($_.Current.IsEnabled)" })) -join ' | '
+    throw "Timed out waiting for $Description. Screen text: $screen. Desktop: $desktopDetails"
 }
 function Find-Control([string]$Id) {
     $condition = [System.Windows.Automation.PropertyCondition]::new(
@@ -113,7 +122,7 @@ function Find-PickerButton([string[]]$Names) {
             [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty,
                 [System.Windows.Automation.ControlType]::Button))
         $button = $desktop.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
-        if ($null -ne $button -and $button.Current.IsEnabled) { return $button }
+        if ($null -ne $button) { return $button }
     }
     return $null
 }
@@ -233,11 +242,11 @@ try {
     Invoke-Control (Find-Name $root 'Browse')
     Wait-For { $null -ne (Find-PickerButton @('Select Folder', 'Select folder', 'Choose this folder', 'Choose folder')) } 'the folder picker'
     $choose = Find-PickerButton @('Select Folder', 'Select folder', 'Choose this folder', 'Choose folder')
-    $choose.SetFocus()
+    (Find-PickerButton @('Cancel')).SetFocus()
     [System.Windows.Forms.SendKeys]::SendWait('%d')
     [System.Windows.Forms.SendKeys]::SendWait($browseFolder)
     [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
-    Start-Sleep -Milliseconds 500
+    Wait-For { (Find-PickerButton @('Select Folder', 'Select folder', 'Choose this folder', 'Choose folder')).Current.IsEnabled } 'enabled folder selection'
     Invoke-Control (Find-PickerButton @('Select Folder', 'Select folder', 'Choose this folder', 'Choose folder'))
     Wait-For { (Folder-Value) -eq $browseFolder } 'Browse selection'
     Wait-For { (Read-Config).Contains("SaveFolder=$browseFolder") } 'immediate Browse persistence'

@@ -184,7 +184,7 @@ public sealed partial class MainWindow : Window
         var generation = _monitor.History.Generation;
         try
         {
-            var picker = new FolderPicker();
+            var picker = new FolderPicker { CommitButtonText = "Select Folder" };
             picker.FileTypeFilter.Add("*");
             WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
             if (_folderUpdate is not null) await _folderUpdate;
