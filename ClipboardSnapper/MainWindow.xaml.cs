@@ -105,6 +105,12 @@ public sealed partial class MainWindow : Window
             if (previous is not null) await previous;
             var result = await _namingPreferences.SaveAsync(state);
             if (!_closing && result.Warning is not null) ShowNamingWarning(result.Warning, generation);
+            else if (!_closing && _monitor.History.IsCurrent(generation) && SettingsMessage.Title == "Filename preset settings")
+            {
+                SettingsMessage.IsOpen = false;
+                SettingsMessage.Title = "";
+                SettingsMessage.Message = "";
+            }
             return result;
         }
     }

@@ -379,6 +379,18 @@ try {
     Invoke-Control (Find-Control 'DeletePresetButton')
     Confirm-Preset 'Delete'
     if (-not (Read-Config).Contains($unrelated)) { throw 'Preset CRUD lost unrelated INI settings.' }
+    $beforePresetWriteFailure = Read-Config
+    [IO.File]::SetAttributes($config, [IO.FileAttributes]::ReadOnly)
+    Set-Text 'RuleFormula' 'Session_${start=1}'
+    Set-Text 'PresetName' 'Session only'
+    Invoke-Control (Find-Control 'SavePresetButton')
+    Wait-For { (Find-Control 'SavePresetButton').Current.IsEnabled -and $null -ne (Find-Name (Find-Control 'SettingsMessage') 'Filename preset settings') } 'preset persistence warning'
+    if ((Read-Config) -ne $beforePresetWriteFailure) { throw 'Saving a preset changed a read-only configuration.' }
+    Close-App
+    [IO.File]::SetAttributes($config, [IO.FileAttributes]::Normal)
+    Start-App
+    Expand-Naming $true
+    if ((Text-Value 'RuleFormula') -ne $defaultRule -or (Read-Config).Contains('Session only')) { throw 'Failed preset write was treated as durable after restart.' }
     Expand-Naming $false
     Write-Output '::notice::Preset UI verified: create/select, formula preview, update/cancel, deletion/cancel, default fallback, restart persistence, active selection, invalid rule validation, immutable monitoring controls, counters across Clear/Start, collision suffixes and existing-image/config preservation.'
 
@@ -442,6 +454,14 @@ try {
     Invoke-Control (Find-Name (Find-Control 'HistoryList') 'Details')
     Wait-For { $null -ne (Find-Control 'FileDetails') } 'the failure details dialog'
     $details = Find-Control 'FileDetails'
+    Wait-For {
+        $content = $details.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+            [System.Windows.Automation.PropertyCondition]::new(
+                [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                [System.Windows.Automation.ControlType]::Text))
+        $text = ($content | ForEach-Object { $_.Current.Name }) -join ' '
+        $text.Contains('Exception:') -and $text.Contains($blocked)
+    } 'rendered failure details containing the exception and failed folder'
     $texts = $details.FindAll([System.Windows.Automation.TreeScope]::Descendants,
         [System.Windows.Automation.PropertyCondition]::new(
             [System.Windows.Automation.AutomationElement]::ControlTypeProperty,

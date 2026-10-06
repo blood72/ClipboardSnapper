@@ -72,7 +72,7 @@ public sealed class NamingPreferences(string configPath)
 
     private static void Validate(NamingState state)
     {
-        _ = FilenameRule.Parse(state.Formula).Generate(DateTimeOffset.Now, 0);
+        ValidateFormula(state.Formula);
         var ids = new HashSet<string>(StringComparer.Ordinal);
         var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var preset in state.Presets)
@@ -81,11 +81,14 @@ public sealed class NamingPreferences(string configPath)
                 string.IsNullOrWhiteSpace(preset.Name) || preset.Name != preset.Name.Trim() ||
                 preset.Name.Any(c => c < 32) || !names.Add(preset.Name))
                 throw new InvalidDataException("Preset names and IDs must be valid and unique.");
-            _ = FilenameRule.Parse(preset.Formula).Generate(DateTimeOffset.Now, 0);
+            ValidateFormula(preset.Formula);
         }
         if (state.SelectedPresetId is null || (state.SelectedPresetId.Length > 0 && !ids.Contains(state.SelectedPresetId)))
             throw new InvalidDataException("The selected filename preset does not exist.");
     }
+
+    private static void ValidateFormula(string formula) =>
+        FilenameRule.ValidateName(FilenameRule.Parse(formula).Generate(DateTimeOffset.Now, 0) + ".png");
 
     private static bool IsPreferenceError(Exception exception) => PortableConfig.IsStorageError(exception) ||
         exception is FormatException or JsonException or OverflowException;

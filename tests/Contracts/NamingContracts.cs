@@ -8,6 +8,8 @@ static class NamingContracts
         // Use local time so the expected capture-time fields are independent of the runner's time zone.
         var accepted = new DateTimeOffset(new DateTime(2026, 10, 6, 9, 3, 5, 123, DateTimeKind.Local));
         Check.That(FilenameRule.Parse(FilenameRule.DefaultFormula).Generate(accepted, 0) == "Clipboard_20261006_090305_123", "Default formula did not use capture time.");
+        var recordedOffset = new DateTimeOffset(2026, 10, 6, 23, 59, 58, TimeSpan.FromHours(9));
+        Check.That(FilenameRule.Parse(FilenameRule.DefaultFormula).Generate(recordedOffset, 0) == "Clipboard_20261006_235958_000", "Queued naming reinterpreted the recorded local clock fields in the current time zone.");
         var date = FilenameRule.Parse("$YYYY-$YY-$Y_$MMMM-$MMM-$MM-$M_$DDDD-$DDD-$DD-$D_$hh-$h-$mm-$m-$ss-$s_$fff-$ff-$f");
         var culture = CultureInfo.CurrentCulture;
         try
@@ -122,7 +124,7 @@ static class NamingContracts
         loaded = await preferences.LoadAsync();
         Check.That(loaded.State.Presets.Count == 0 && loaded.State.SelectedPresetId == "" && loaded.State.Formula == FilenameRule.DefaultFormula,
             "Deleted preset returned after restart or default selection was not restored.");
-        foreach (var malformed in new[] { "[broken\n", "[NamingPresets]\nPreset." + preset.Id + "=not-json\n", "[Naming]\nFormula=NUL\n", "[Naming]\nSelectedPreset=missing\n" })
+        foreach (var malformed in new[] { "[broken\n", "[NamingPresets]\nPreset." + preset.Id + "=not-json\n", "[Naming]\nFormula=NUL\n", "[Naming]\nSelectedPreset=missing\n", "[Naming]\nFormula=" + new string('a', 252) + "\n" })
         {
             await File.WriteAllTextAsync(config, malformed);
             Check.That((await preferences.LoadAsync()).Warning is not null, "Invalid preset configuration did not show a warning.");

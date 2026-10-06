@@ -45,7 +45,8 @@ public sealed class FilenameRule
             }
             var token = DateTokens.FirstOrDefault(token => formula.AsSpan(i + 1).StartsWith(token, StringComparison.Ordinal));
             if (token is null) throw new FormatException("Unknown variable. Use PowerRename date/time or ${...} variables; use $$ for a literal $.");
-            parts.Add((time, _) => FormatDate(time.LocalDateTime, token));
+            // Retain the local clock fields recorded at acceptance even if the OS time zone later changes.
+            parts.Add((time, _) => FormatDate(time.DateTime, token));
             i += token.Length + 1;
         }
         return new FilenameRule(parts);
@@ -146,7 +147,7 @@ public static class ImageFileCommit
         // Move a complete file without replacement. Retry only destination collisions, never overwrite.
         for (long suffix = 1; ; suffix = checked(suffix + 1))
         {
-            var name = stem + (suffix == 1 ? "" : $" ({suffix})") + "." + extension;
+            var name = stem + (suffix == 1 ? "" : " (" + suffix.ToString(CultureInfo.InvariantCulture) + ")") + "." + extension;
             FilenameRule.ValidateName(name);
             var destination = Path.Combine(folder, name);
             if (File.Exists(destination) || Directory.Exists(destination)) continue;
