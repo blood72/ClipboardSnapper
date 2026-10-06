@@ -35,7 +35,7 @@ internal sealed class PortableConfig(string path)
                     }
                     stream.Flush(true);
                 }
-                File.Move(temporary, path, overwrite: true);
+                ReplaceFile(temporary, path);
             }
             finally
             {
@@ -44,6 +44,27 @@ internal sealed class PortableConfig(string path)
                 catch (UnauthorizedAccessException) { }
             }
         }
+    }
+
+    private static void ReplaceFile(string temporary, string destination)
+    {
+        // Windows file observers/scanners can briefly deny replacement. Settings I/O runs off the UI thread.
+        for (var attempt = 0; ; attempt++)
+        {
+            try { File.Move(temporary, destination, overwrite: true); return; }
+            catch (Exception exception) when (attempt < 4 && (exception is IOException or UnauthorizedAccessException) &&
+                ((exception.HResult & 0xffff) is 5 or 32 or 33) && !IsReadOnly(destination))
+            {
+                Thread.Sleep(25 * (attempt + 1));
+            }
+        }
+    }
+
+    private static bool IsReadOnly(string path)
+    {
+        try { return File.Exists(path) && (File.GetAttributes(path) & FileAttributes.ReadOnly) != 0; }
+        catch (IOException) { return true; }
+        catch (UnauthorizedAccessException) { return true; }
     }
 
     public static bool IsStorageError(Exception exception) => exception is

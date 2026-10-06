@@ -69,6 +69,8 @@ The file uses INI sections and `key=value` entries (UTF-8 on writes); `Storage` 
 `SaveFolder` are case-insensitive. Unrelated entries and comments are retained for
 future preferences, including updater settings. No updater is implemented here.
 Updates use a temporary file in the same directory followed by file replacement.
+Brief replacement locks are retried with a bounded delay off the UI thread;
+read-only files and persistent permission errors still produce a warning.
 An absent configuration uses the default. An unreadable or malformed configuration
 uses the default and shows a warning without overwriting the original file.
 Malformed section headers/entries and duplicate `SaveFolder` keys are rejected.

@@ -44,7 +44,8 @@ if (-not [DesktopNative]::GetMonitorInfo([DesktopNative]::MonitorFromPoint($curs
 function Wait-For($Condition, [string]$Description) {
     $deadline = [DateTime]::UtcNow.AddSeconds(20)
     do {
-        if (& $Condition) { return }
+        try { if (& $Condition) { return } }
+        catch [System.Windows.Automation.ElementNotAvailableException] { }
         if ($script:process.HasExited) { throw "App exited while waiting for $Description." }
         Start-Sleep -Milliseconds 100
     } while ([DateTime]::UtcNow -lt $deadline)
@@ -77,8 +78,17 @@ function Find-Name($Parent, [string]$Name) {
     return $Parent.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
 }
 function Invoke-Control($Element) {
+    if ($null -eq $Element) { throw 'The requested UI control is not ready.' }
     ([System.Windows.Automation.InvokePattern]$Element.GetCurrentPattern(
         [System.Windows.Automation.InvokePattern]::Pattern)).Invoke()
+}
+function Invoke-Id([string]$Id) {
+    $target = @{ Element = $null }
+    Wait-For {
+        $target.Element = Find-Control $Id
+        $null -ne $target.Element -and $target.Element.Current.IsEnabled
+    } "enabled $Id control"
+    Invoke-Control $target.Element
 }
 function Set-Folder([string]$Path) {
     Scroll-ToTop
@@ -153,6 +163,7 @@ function Select-Option([string]$Id, [string]$Name) {
 }
 function Select-Format([string]$Name) { Select-Option 'FormatPicker' $Name }
 function Set-Text([string]$Id, [string]$Value) {
+    Wait-For { $null -ne (Find-Control $Id) -and (Find-Control $Id).Current.IsEnabled } "editable $Id control"
     ([System.Windows.Automation.ValuePattern](Find-Control $Id).GetCurrentPattern(
         [System.Windows.Automation.ValuePattern]::Pattern)).SetValue($Value)
 }
@@ -183,12 +194,12 @@ function Copy-Image {
 }
 function Start-Monitoring {
     Scroll-ToTop
-    Invoke-Control (Find-Control 'StartButton')
+    Invoke-Id 'StartButton'
     Wait-For { (Find-Control 'MonitoringStatus').Current.Name -eq 'Monitoring' } 'monitoring state'
 }
 function Stop-Monitoring {
     Scroll-ToTop
-    Invoke-Control (Find-Control 'StopButton')
+    Invoke-Id 'StopButton'
     Wait-For { (Find-Control 'MonitoringStatus').Current.Name -eq 'Stopped' } 'stopped state'
 }
 function Set-Quality([double]$Quality) {
@@ -319,19 +330,19 @@ try {
     Set-Text 'RuleFormula' 'Preset_${start=10;padding=4;increment=2}'
     if ((Find-Control 'RulePreview').Current.Name -ne 'Example: Preset_0010.png') { throw 'Counter preview is wrong.' }
     Set-Text 'PresetName' 'Capture series'
-    Invoke-Control (Find-Control 'SavePresetButton')
+    Invoke-Id 'SavePresetButton'
     Wait-For { (Read-Config).Contains('Capture series') -and (Find-Control 'SavePresetButton').Current.IsEnabled } 'new named preset'
     Set-Text 'RuleFormula' 'Date_$YYYY$MM$DD'
     Set-Text 'PresetName' 'By date'
-    Invoke-Control (Find-Control 'SavePresetButton')
+    Invoke-Id 'SavePresetButton'
     Wait-For { (Read-Config).Contains('By date') -and (Find-Control 'SavePresetButton').Current.IsEnabled } 'second named preset'
     Select-Option 'PresetPicker' 'Capture series'
     Wait-For { (Text-Value 'RuleFormula') -eq 'Preset_${start=10;padding=4;increment=2}' } 'reused preset formula'
     Set-Text 'RuleFormula' 'Preset_${start=20;padding=4;increment=2}'
-    Invoke-Control (Find-Control 'SavePresetButton')
+    Invoke-Id 'SavePresetButton'
     Confirm-Preset 'Cancel'
     if ((Read-Config).Contains('start=20')) { throw 'Cancelled update modified the saved preset.' }
-    Invoke-Control (Find-Control 'SavePresetButton')
+    Invoke-Id 'SavePresetButton'
     Confirm-Preset 'Update'
     Wait-For { (Read-Config).Contains('start=20') } 'updated preset'
     Close-App
@@ -363,10 +374,10 @@ try {
     Wait-For { -not (Find-Control 'StartButton').Current.IsEnabled -and (Find-Control 'RulePreview').Current.Name.StartsWith('Invalid formula:') } 'invalid filename validation'
     Set-Text 'RuleFormula' 'Preset_${start=20;padding=4;increment=2}'
     $beforeDelete = @(Get-ChildItem $testFolder -File | ForEach-Object { (Get-FileHash $_.FullName).Hash }) -join ','
-    Invoke-Control (Find-Control 'DeletePresetButton')
+    Invoke-Id 'DeletePresetButton'
     Confirm-Preset 'Cancel'
     if (-not (Read-Config).Contains('Capture series')) { throw 'Cancelled deletion removed a preset.' }
-    Invoke-Control (Find-Control 'DeletePresetButton')
+    Invoke-Id 'DeletePresetButton'
     Confirm-Preset 'Delete'
     if ((Text-Value 'RuleFormula') -ne $defaultRule -or (Read-Config).Contains('Capture series')) { throw 'Deletion did not select the default or remove the preset.' }
     $afterDelete = @(Get-ChildItem $testFolder -File | ForEach-Object { (Get-FileHash $_.FullName).Hash }) -join ','
@@ -376,14 +387,14 @@ try {
     Expand-Naming $true
     if ((Text-Value 'RuleFormula') -ne $defaultRule -or (Text-Value 'PresetName') -ne '') { throw 'Deleted preset returned on restart.' }
     Select-Option 'PresetPicker' 'By date'
-    Invoke-Control (Find-Control 'DeletePresetButton')
+    Invoke-Id 'DeletePresetButton'
     Confirm-Preset 'Delete'
     if (-not (Read-Config).Contains($unrelated)) { throw 'Preset CRUD lost unrelated INI settings.' }
     $beforePresetWriteFailure = Read-Config
     [IO.File]::SetAttributes($config, [IO.FileAttributes]::ReadOnly)
     Set-Text 'RuleFormula' 'Session_${start=1}'
     Set-Text 'PresetName' 'Session only'
-    Invoke-Control (Find-Control 'SavePresetButton')
+    Invoke-Id 'SavePresetButton'
     Wait-For { (Find-Control 'SavePresetButton').Current.IsEnabled -and $null -ne (Find-Name (Find-Control 'SettingsMessage') 'Filename preset settings') } 'preset persistence warning'
     if ((Read-Config) -ne $beforePresetWriteFailure) { throw 'Saving a preset changed a read-only configuration.' }
     Close-App
