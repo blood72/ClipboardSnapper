@@ -137,8 +137,8 @@ function Scroll-ToTop {
     if ($scroll.Current.VerticallyScrollable) { $scroll.SetScrollPercent(-1, 0) }
     Wait-For { $null -ne (Find-Control 'StartButton') } 'monitoring controls after scrolling to the top'
 }
-function Select-Format([string]$Name) {
-    $combo = Find-Control 'FormatPicker'
+function Select-Option([string]$Id, [string]$Name) {
+    $combo = Find-Control $Id
     $expand = [System.Windows.Automation.ExpandCollapsePattern]$combo.GetCurrentPattern(
         [System.Windows.Automation.ExpandCollapsePattern]::Pattern)
     $expand.Expand()
@@ -150,6 +150,28 @@ function Select-Format([string]$Name) {
     $selection = [System.Windows.Automation.SelectionPattern]$combo.GetCurrentPattern(
         [System.Windows.Automation.SelectionPattern]::Pattern)
     Wait-For { $selection.Current.GetSelection()[0].Current.Name -eq $Name } "$Name selection"
+}
+function Select-Format([string]$Name) { Select-Option 'FormatPicker' $Name }
+function Set-Text([string]$Id, [string]$Value) {
+    ([System.Windows.Automation.ValuePattern](Find-Control $Id).GetCurrentPattern(
+        [System.Windows.Automation.ValuePattern]::Pattern)).SetValue($Value)
+}
+function Text-Value([string]$Id) {
+    return ([System.Windows.Automation.ValuePattern](Find-Control $Id).GetCurrentPattern(
+        [System.Windows.Automation.ValuePattern]::Pattern)).Current.Value
+}
+function Expand-Naming([bool]$Expanded) {
+    Scroll-ToTop
+    $pattern = [System.Windows.Automation.ExpandCollapsePattern](Find-Control 'NamingExpander').GetCurrentPattern(
+        [System.Windows.Automation.ExpandCollapsePattern]::Pattern)
+    if ($Expanded) { $pattern.Expand(); Wait-For { $null -ne (Find-Control 'RuleFormula') } 'filename controls' }
+    else { $pattern.Collapse() }
+}
+function Confirm-Preset([string]$Action) {
+    Wait-For { $null -ne (Find-Control 'PresetConfirmation') } 'preset confirmation'
+    Invoke-Control (Find-Name (Find-Control 'PresetConfirmation') $Action)
+    Wait-For { $null -eq (Find-Control 'PresetConfirmation') } 'closed preset confirmation'
+    Wait-For { (Find-Control 'SavePresetButton').Current.IsEnabled } 'finished preset change'
 }
 function Copy-Image {
     $bitmap = [System.Drawing.Bitmap]::new(32, 24)
@@ -187,7 +209,8 @@ function Assert-EmptyHistory {
             [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
             [System.Windows.Automation.ControlType]::Text))
     $names = ($texts | ForEach-Object { $_.Current.Name }) -join ' | '
-    if ($names.Contains('Clipboard_') -or $names.Contains('Exception:') -or $names.Contains('Image saved') -or $names.Contains('Save failed')) {
+    # A naming-rule example remains a setting; saved-image paths/messages must be cleared.
+    if ($names.Contains('Exception:') -or $names.Contains('Image saved') -or $names.Contains('Save failed')) {
         throw "Old file captions or save messages remain after Clear: $names"
     }
 }
@@ -290,6 +313,87 @@ try {
     Remove-Item $unavailable
     Write-Output '::notice::Folder UI persistence passed: manual focus loss without Start/captures, Browse selection/cancel, restart, executable-relative config, unrelated entries, read-only configuration warning/session selection and persisted default fallback.'
 
+    Expand-Naming $true
+    $defaultRule = 'Clipboard_$YYYY$MM$DD_$hh$mm$ss_$fff'
+    if ((Text-Value 'RuleFormula') -ne $defaultRule) { throw 'Unexpected default filename formula.' }
+    Set-Text 'RuleFormula' 'Preset_${start=10;padding=4;increment=2}'
+    if ((Find-Control 'RulePreview').Current.Name -ne 'Example: Preset_0010.png') { throw 'Counter preview is wrong.' }
+    Set-Text 'PresetName' 'Capture series'
+    Invoke-Control (Find-Control 'SavePresetButton')
+    Wait-For { (Read-Config).Contains('Capture series') -and (Find-Control 'SavePresetButton').Current.IsEnabled } 'new named preset'
+    Set-Text 'RuleFormula' 'Date_$YYYY$MM$DD'
+    Set-Text 'PresetName' 'By date'
+    Invoke-Control (Find-Control 'SavePresetButton')
+    Wait-For { (Read-Config).Contains('By date') -and (Find-Control 'SavePresetButton').Current.IsEnabled } 'second named preset'
+    Select-Option 'PresetPicker' 'Capture series'
+    Wait-For { (Text-Value 'RuleFormula') -eq 'Preset_${start=10;padding=4;increment=2}' } 'reused preset formula'
+    Set-Text 'RuleFormula' 'Preset_${start=20;padding=4;increment=2}'
+    Invoke-Control (Find-Control 'SavePresetButton')
+    Confirm-Preset 'Cancel'
+    if ((Read-Config).Contains('start=20')) { throw 'Cancelled update modified the saved preset.' }
+    Invoke-Control (Find-Control 'SavePresetButton')
+    Confirm-Preset 'Update'
+    Wait-For { (Read-Config).Contains('start=20') } 'updated preset'
+    Close-App
+    Start-App
+    Expand-Naming $true
+    if ((Text-Value 'RuleFormula') -ne 'Preset_${start=20;padding=4;increment=2}' -or (Text-Value 'PresetName') -ne 'Capture series') {
+        throw 'Saved preset and active selection did not survive restart.'
+    }
+    Commit-Folder $testFolder
+    Start-Monitoring
+    foreach ($id in @('RuleFormula', 'PresetPicker', 'PresetName', 'SavePresetButton', 'DeletePresetButton')) {
+        if ((Find-Control $id).Current.IsEnabled) { throw "$id is editable while monitoring." }
+    }
+    Expand-Naming $false
+    Copy-Image
+    Wait-For { Test-Path (Join-Path $testFolder 'Preset_0020.png') } 'preset filename'
+    Wait-For { $null -ne (Find-Control 'PreviewImage') } 'preset image preview'
+    Clear-History
+    Copy-Image
+    Wait-For { Test-Path (Join-Path $testFolder 'Preset_0022.png') } 'numbering continues after Clear'
+    Stop-Monitoring
+    Start-Monitoring
+    Copy-Image
+    Wait-For { Test-Path (Join-Path $testFolder 'Preset_0020 (2).png') } 'restart counter with safe collision suffix'
+    Stop-Monitoring
+    Clear-History
+    Expand-Naming $true
+    Set-Text 'RuleFormula' '../escape'
+    Wait-For { -not (Find-Control 'StartButton').Current.IsEnabled -and (Find-Control 'RulePreview').Current.Name.StartsWith('Invalid formula:') } 'invalid filename validation'
+    Set-Text 'RuleFormula' 'Preset_${start=20;padding=4;increment=2}'
+    $beforeDelete = @(Get-ChildItem $testFolder -File | ForEach-Object { (Get-FileHash $_.FullName).Hash }) -join ','
+    Invoke-Control (Find-Control 'DeletePresetButton')
+    Confirm-Preset 'Cancel'
+    if (-not (Read-Config).Contains('Capture series')) { throw 'Cancelled deletion removed a preset.' }
+    Invoke-Control (Find-Control 'DeletePresetButton')
+    Confirm-Preset 'Delete'
+    if ((Text-Value 'RuleFormula') -ne $defaultRule -or (Read-Config).Contains('Capture series')) { throw 'Deletion did not select the default or remove the preset.' }
+    $afterDelete = @(Get-ChildItem $testFolder -File | ForEach-Object { (Get-FileHash $_.FullName).Hash }) -join ','
+    if ($beforeDelete -ne $afterDelete) { throw 'Deleting a preset changed saved images.' }
+    Close-App
+    Start-App
+    Expand-Naming $true
+    if ((Text-Value 'RuleFormula') -ne $defaultRule -or (Text-Value 'PresetName') -ne '') { throw 'Deleted preset returned on restart.' }
+    Select-Option 'PresetPicker' 'By date'
+    Invoke-Control (Find-Control 'DeletePresetButton')
+    Confirm-Preset 'Delete'
+    if (-not (Read-Config).Contains($unrelated)) { throw 'Preset CRUD lost unrelated INI settings.' }
+    $beforePresetWriteFailure = Read-Config
+    [IO.File]::SetAttributes($config, [IO.FileAttributes]::ReadOnly)
+    Set-Text 'RuleFormula' 'Session_${start=1}'
+    Set-Text 'PresetName' 'Session only'
+    Invoke-Control (Find-Control 'SavePresetButton')
+    Wait-For { (Find-Control 'SavePresetButton').Current.IsEnabled -and $null -ne (Find-Name (Find-Control 'SettingsMessage') 'Filename preset settings') } 'preset persistence warning'
+    if ((Read-Config) -ne $beforePresetWriteFailure) { throw 'Saving a preset changed a read-only configuration.' }
+    Close-App
+    [IO.File]::SetAttributes($config, [IO.FileAttributes]::Normal)
+    Start-App
+    Expand-Naming $true
+    if ((Text-Value 'RuleFormula') -ne $defaultRule -or (Read-Config).Contains('Session only')) { throw 'Failed preset write was treated as durable after restart.' }
+    Expand-Naming $false
+    Write-Output '::notice::Preset UI verified: create/select, formula preview, update/cancel, deletion/cancel, default fallback, restart persistence, active selection, invalid rule validation, immutable monitoring controls, counters across Clear/Start, collision suffixes and existing-image/config preservation.'
+
     foreach ($format in @(@('PNG', 'png'), @('JPEG', 'jpg'), @('BMP', 'bmp'))) {
         Set-Folder $testFolder
         Select-Format $format[0]
@@ -305,9 +409,10 @@ try {
         } elseif ($null -ne (Find-Control 'JpegQuality')) { throw 'JPEG quality is shown for PNG/BMP.' }
         Start-Monitoring
         if ($format[0] -eq 'JPEG' -and (Find-Control 'JpegQuality').Current.IsEnabled) { throw 'Quality is editable while monitoring.' }
-        Copy-Image
         $pattern = '*.' + $format[1]
-        Wait-For { @(Get-ChildItem $testFolder -Filter $pattern).Count -gt 0 } "$($format[0]) image saving"
+        $beforeCapture = @(Get-ChildItem $testFolder -Filter $pattern).Count
+        Copy-Image
+        Wait-For { @(Get-ChildItem $testFolder -Filter $pattern).Count -gt $beforeCapture } "$($format[0]) image saving"
         $saved = Get-ChildItem $testFolder -Filter $pattern | Select-Object -First 1
         $image = [System.Drawing.Bitmap]::new($saved.FullName)
         try {
@@ -349,6 +454,14 @@ try {
     Invoke-Control (Find-Name (Find-Control 'HistoryList') 'Details')
     Wait-For { $null -ne (Find-Control 'FileDetails') } 'the failure details dialog'
     $details = Find-Control 'FileDetails'
+    Wait-For {
+        $content = $details.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+            [System.Windows.Automation.PropertyCondition]::new(
+                [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                [System.Windows.Automation.ControlType]::Text))
+        $text = ($content | ForEach-Object { $_.Current.Name }) -join ' '
+        $text.Contains('Exception:') -and $text.Contains($blocked)
+    } 'rendered failure details containing the exception and failed folder'
     $texts = $details.FindAll([System.Windows.Automation.TreeScope]::Descendants,
         [System.Windows.Automation.PropertyCondition]::new(
             [System.Windows.Automation.AutomationElement]::ControlTypeProperty,

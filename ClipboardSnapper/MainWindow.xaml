@@ -71,6 +71,22 @@
                         </StackPanel>
                     </Grid>
                     <TextBlock Text="The folder is remembered after Browse or leaving the path field. Save options apply when you press Start. Stop monitoring to change them." TextWrapping="Wrap" Opacity="0.7" />
+                    <Expander x:Name="NamingExpander" Header="Filename rules and presets" HorizontalAlignment="Stretch" AutomationProperties.AutomationId="NamingExpander">
+                        <StackPanel x:Name="NamingControls" Spacing="8">
+                            <ComboBox x:Name="PresetPicker" Header="Preset" DisplayMemberPath="Name" HorizontalAlignment="Stretch" SelectionChanged="Preset_SelectionChanged" AutomationProperties.AutomationId="PresetPicker" />
+                            <TextBox x:Name="RuleFormula" Header="Formula" TextChanged="RuleFormula_TextChanged" AutomationProperties.AutomationId="RuleFormula" />
+                            <TextBlock x:Name="RulePreview" TextWrapping="Wrap" AutomationProperties.AutomationId="RulePreview" />
+                            <TextBox x:Name="PresetName" Header="Preset name" PlaceholderText="Name your rule" AutomationProperties.AutomationId="PresetName" />
+                            <TextBlock Text="Choose a preset to reuse it. Edit its formula and Save Preset to update it; use another name to save a copy." TextWrapping="Wrap" Opacity="0.7" />
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button x:Name="SavePresetButton" Content="Save Preset" Click="SavePreset_Click" AutomationProperties.AutomationId="SavePresetButton" />
+                                <Button x:Name="DeletePresetButton" Content="Delete Preset" Click="DeletePreset_Click" AutomationProperties.AutomationId="DeletePresetButton" />
+                            </StackPanel>
+                            <Expander Header="Formula variables" HorizontalAlignment="Stretch">
+                                <TextBlock Text="PowerRename-style variables: $YYYY $YY $Y, $MMMM $MMM $MM $M, $DDDD $DDD $DD $D, $hh $h $mm $m $ss $s $fff $ff $f.&#xA;Numbering: ${} or ${start=1;padding=4;increment=1}. Numbers restart with each Start; Clear History does not reset them.&#xA;Random values: ${rstringalnum=8}, ${rstringalpha=8}, ${rstringdigit=8}, ${ruuidv4}. Use $$ for a literal $.&#xA;Dates use capture time. The image extension is added automatically. Existing files are kept; collisions use (2), (3), etc." TextWrapping="Wrap" />
+                            </Expander>
+                        </StackPanel>
+                    </Expander>
                 </StackPanel>
                 <InfoBar x:Name="SettingsMessage" IsOpen="False" IsClosable="True" AutomationProperties.AutomationId="SettingsMessage" />
                 <InfoBar x:Name="ResultMessage" IsOpen="False" IsClosable="True" AutomationProperties.AutomationId="ResultMessage" />

@@ -43,6 +43,33 @@ static class EncoderContracts
                 var result = await ImageSaver.SaveAsync(new CapturedImage(bytes, options with { Format = format, JpegQuality = 0 }, 8));
                 Check.That(result.Success && result.Generation == 8, $"{format} incorrectly used the JPEG-only setting: {result.Error}");
             }
+            foreach (var format in new[] { ImageFormat.Png, ImageFormat.Jpeg, ImageFormat.Bmp })
+            {
+                var extension = format switch { ImageFormat.Jpeg => "jpg", ImageFormat.Bmp => "bmp", _ => "png" };
+                var collisionOptions = options with { Format = format, NamingFormula = "Repeated" };
+                var existing = Path.Combine(folder, "Repeated." + extension);
+                await File.WriteAllBytesAsync(existing, [9, 8, 7]);
+                var numbered = await Task.WhenAll(Enumerable.Range(0, 8).Select(index =>
+                    ImageSaver.SaveAsync(new CapturedImage(bytes, collisionOptions, 9) { CaptureIndex = index })));
+                Check.That(numbered.All(result => result.Success) && numbered.Select(result => result.FilePath).Distinct().Count() == 8,
+                    $"Concurrent {format} encoding failed or overwrote a repeated name: {string.Join(" | ", numbered.Select(r => r.Error))}");
+                Check.That(numbered.Select(r => Path.GetFileName(r.FilePath)).ToHashSet().SetEquals(
+                    Enumerable.Range(2, 8).Select(index => $"Repeated ({index}).{extension}")), "Concurrent encoding skipped or reused a collision suffix.");
+                Check.That((await File.ReadAllBytesAsync(existing)).SequenceEqual(new byte[] { 9, 8, 7 }), "Encoding overwrote the existing file.");
+                foreach (var result in numbered)
+                {
+                    using var output = await (await StorageFile.GetFileFromPathAsync(result.FilePath)).OpenReadAsync();
+                    var decoder = await BitmapDecoder.CreateAsync(output);
+                    Check.That(decoder.PixelWidth == 128 && decoder.PixelHeight == 128, "A final collision output was not a complete image.");
+                }
+            }
+            var acceptedAt = new DateTimeOffset(new DateTime(2026, 10, 6, 9, 3, 5, 123, DateTimeKind.Local));
+            var dated = await ImageSaver.SaveAsync(new CapturedImage(bytes,
+                options with { Format = ImageFormat.Png, NamingFormula = "At_$YYYY$MM$DD_$hh$mm$ss_$fff_${start=1}" }, 9)
+                { AcceptedAt = acceptedAt, CaptureIndex = 4 });
+            Check.That(dated.Success && Path.GetFileName(dated.FilePath) == "At_20261006_090305_123_5.png", "Encoding used save time instead of captured metadata.");
+            var invalidRule = await ImageSaver.SaveAsync(new CapturedImage(bytes, options with { NamingFormula = "../escape" }, 9));
+            Check.That(!invalidRule.Success && invalidRule.Error.Contains("FormatException", StringComparison.Ordinal), "Invalid naming escaped the save error flow.");
             var session = new SessionHistory();
             var pending = new CapturedImage(bytes, options, session.Generation);
             var saving = ImageSaver.SaveAsync(pending);
@@ -52,6 +79,8 @@ static class EncoderContracts
                 "A real pre-clear image did not finish saving without returning to the history.");
             var failed = await ImageSaver.SaveAsync(new CapturedImage([1, 2, 3], options, pending.Generation));
             Check.That(!failed.Success && failed.Generation == pending.Generation && !session.Publish(failed), "Late encoder failure lost its generation.");
+            Check.That(!Directory.EnumerateFiles(folder, "*.tmp").Any(), "Encoding failure/success left temporary images behind.");
+            Console.WriteLine("::notice::Real encoding verified: PNG/JPEG/BMP concurrent (2)–(9) names, existing-file hashes, complete outputs, capture timestamp/numbering and invalid-name/temp cleanup.");
             Console.WriteLine($"::notice::Real BitmapEncoder verified: JPEG 1/90/100 sizes {low.Length}/{normal.Length}/{high.Length}, distinct quantization, default 90, white alpha, PNG/BMP isolation and post-clear file preservation.");
         }
         finally { Directory.Delete(folder, true); }

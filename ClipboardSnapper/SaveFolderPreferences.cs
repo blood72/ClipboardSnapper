@@ -1,5 +1,3 @@
-using System.Text;
-
 namespace ClipboardSnapper;
 
 public sealed record FolderPreference(string Folder, bool CanUse, string? Warning);
@@ -7,16 +5,17 @@ public sealed record FolderPreference(string Folder, bool CanUse, string? Warnin
 public sealed class SaveFolderPreferences(string configPath, string defaultFolder)
 {
     public string DefaultFolder { get; } = defaultFolder;
+    public string ConfigPath { get; } = configPath;
+    private readonly PortableConfig _config = new(configPath);
 
     public static SaveFolderPreferences ForCurrentProcess() => new(
-        Path.Combine(Path.GetDirectoryName(Environment.ProcessPath)
-            ?? throw new InvalidOperationException("The application executable location is unavailable."), "config.ini"),
+        PortableConfig.ExecutableConfigPath,
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "ClipboardSnapper"));
 
     public Task<FolderPreference> LoadAsync() => Task.Run(() =>
     {
         string? saved;
-        try { saved = ReadDocument().Folder; }
+        try { saved = _config.Read(document => document.Get("Storage", "SaveFolder")); }
         catch (Exception exception) when (IsStorageError(exception))
         {
             return Resolve(DefaultFolder, false,
@@ -73,86 +72,9 @@ public sealed class SaveFolderPreferences(string configPath, string defaultFolde
         return folder;
     }
 
-    private sealed record Document(List<string> Lines, string NewLine, int FolderIndex, int SectionEnd, string? Folder);
+    private void WriteFolder(string folder) => _config.Update(document => document.Set("Storage", "SaveFolder", folder));
 
-    private Document ReadDocument()
-    {
-        string text;
-        try { text = File.ReadAllText(configPath, new UTF8Encoding(false, true)); }
-        catch (FileNotFoundException) { return new([], Environment.NewLine, -1, -1, null); }
-        var newLine = text.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
-        var lines = text.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n').ToList();
-        if (lines[^1] == "") lines.RemoveAt(lines.Count - 1);
-        var section = "";
-        var index = -1;
-        var sectionEnd = -1;
-        string? folder = null;
-        for (var i = 0; i < lines.Count; i++)
-        {
-            var line = lines[i].Trim();
-            if (line.Length == 0 || line[0] is ';' or '#') continue;
-            if (line[0] == '[')
-            {
-                if (!line.EndsWith(']') || line.Length < 3)
-                    throw new InvalidDataException("config.ini contains an invalid section header.");
-                section = line[1..^1].Trim();
-                if (section.Equals("Storage", StringComparison.OrdinalIgnoreCase)) sectionEnd = i + 1;
-                continue;
-            }
-            var equals = line.IndexOf('=');
-            if (equals <= 0) throw new InvalidDataException("config.ini contains an invalid entry.");
-            if (!section.Equals("Storage", StringComparison.OrdinalIgnoreCase)) continue;
-            sectionEnd = i + 1;
-            if (!line[..equals].Trim().Equals("SaveFolder", StringComparison.OrdinalIgnoreCase)) continue;
-            if (index >= 0) throw new InvalidDataException("config.ini contains duplicate SaveFolder entries.");
-            index = i;
-            folder = line[(equals + 1)..].Trim();
-        }
-        return new(lines, newLine, index, sectionEnd, folder);
-    }
-
-    private void WriteFolder(string folder)
-    {
-        // Re-read before each update so unrelated settings are retained. Do not overwrite an unreadable/malformed file.
-        var document = ReadDocument();
-        if (document.FolderIndex >= 0)
-        {
-            var old = document.Lines[document.FolderIndex];
-            document.Lines[document.FolderIndex] = old[..(old.IndexOf('=') + 1)] + folder;
-        }
-        else if (document.SectionEnd >= 0)
-            document.Lines.Insert(document.SectionEnd, $"SaveFolder={folder}");
-        else
-        {
-            if (document.Lines.Count > 0) document.Lines.Add("");
-            document.Lines.Add("[Storage]");
-            document.Lines.Add($"SaveFolder={folder}");
-        }
-
-        var temporary = configPath + $".{Guid.NewGuid():N}.tmp";
-        try
-        {
-            using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-            {
-                using (var writer = new StreamWriter(stream, new UTF8Encoding(false), leaveOpen: true))
-                {
-                    writer.Write(string.Join(document.NewLine, document.Lines) + document.NewLine);
-                    writer.Flush();
-                }
-                stream.Flush(true);
-            }
-            File.Move(temporary, configPath, overwrite: true);
-        }
-        finally
-        {
-            try { File.Delete(temporary); }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
-        }
-    }
-
-    private static bool IsStorageError(Exception exception) => exception is
-        IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or NotSupportedException or System.Security.SecurityException;
+    private static bool IsStorageError(Exception exception) => PortableConfig.IsStorageError(exception);
 
     private static string Join(string? first, string second) => first is null ? second : $"{first}\n{second}";
 }

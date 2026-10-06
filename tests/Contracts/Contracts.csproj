@@ -10,6 +10,9 @@
     <Compile Include="../../ClipboardSnapper/ImageModels.cs" Link="ImageModels.cs" />
     <Compile Include="../../ClipboardSnapper/SessionHistory.cs" Link="SessionHistory.cs" />
     <Compile Include="../../ClipboardSnapper/SaveFolderPreferences.cs" Link="SaveFolderPreferences.cs" />
+    <Compile Include="../../ClipboardSnapper/FilenameRule.cs" Link="FilenameRule.cs" />
+    <Compile Include="../../ClipboardSnapper/PortableConfig.cs" Link="PortableConfig.cs" />
+    <Compile Include="../../ClipboardSnapper/NamingPreferences.cs" Link="NamingPreferences.cs" />
   </ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100.0'">
     <Compile Include="../../ClipboardSnapper/ImageSaver.cs" Link="ImageSaver.cs" />
