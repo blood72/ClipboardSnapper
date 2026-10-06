@@ -119,6 +119,14 @@ static class NamingContracts
                     await File.ReadAllTextAsync(config) == original, "A read-only config was overwritten or claimed to be saved.");
             }
             finally { File.SetAttributes(config, FileAttributes.Normal); }
+            using (var observer = new FileStream(config, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            {
+                var locked = await preferences.SaveAsync(NamingState.Default);
+                Check.That(locked.Warning is not null && await File.ReadAllTextAsync(config) == original,
+                    "A persistent replacement lock should warn without changing the original configuration.");
+            }
+            Check.That((await preferences.SaveAsync(state)).Warning is null,
+                "Configuration saving did not recover after a replacement lock was released.");
         }
         await preferences.SaveAsync(NamingState.Default);
         loaded = await preferences.LoadAsync();
