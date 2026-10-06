@@ -15,11 +15,13 @@ public static class ImageSaver
             ImageFormat.Bmp => "bmp",
             _ => "png"
         };
-        var name = $"Clipboard_{DateTime.Now:yyyyMMdd_HHmmss_fff}_{Guid.NewGuid():N}.{extension}";
-        var path = Path.Combine(image.Options.Folder, name);
+        var path = image.Options.Folder;
         StorageFile? temporary = null;
         try
         {
+            var stem = FilenameRule.Parse(image.Options.NamingFormula).Generate(image.AcceptedAt, image.CaptureIndex);
+            FilenameRule.ValidateName(stem + "." + extension);
+            path = Path.Combine(image.Options.Folder, stem + "." + extension);
             Directory.CreateDirectory(image.Options.Folder);
             using var input = new InMemoryRandomAccessStream();
             using (var writer = new DataWriter(input.GetOutputStreamAt(0)))
@@ -48,7 +50,7 @@ public static class ImageSaver
                 }
             }
             var folder = await StorageFolder.GetFolderFromPathAsync(image.Options.Folder);
-            temporary = await folder.CreateFileAsync($".{name}.tmp", CreationCollisionOption.FailIfExists);
+            temporary = await folder.CreateFileAsync($".ClipboardSnapper-{Guid.NewGuid():N}.tmp", CreationCollisionOption.FailIfExists);
             using (var output = await temporary.OpenAsync(FileAccessMode.ReadWrite))
             {
                 var encoderId = image.Options.Format switch
@@ -66,7 +68,7 @@ public static class ImageSaver
                     width, height, decoder.DpiX, decoder.DpiY, pixels);
                 await encoder.FlushAsync();
             }
-            await temporary.RenameAsync(name, NameCollisionOption.FailIfExists);
+            path = ImageFileCommit.Commit(temporary.Path, image.Options.Folder, stem, extension);
             temporary = null;
             return new SaveResult(path, DateTimeOffset.Now, true, Width: width, Height: height,
                 Generation: image.Generation);

@@ -17,6 +17,7 @@ public sealed class ClipboardMonitor : IAsyncDisposable
     private readonly Task _writer;
     private SaveOptions? _options;
     private uint _lastSequence;
+    private long _captureIndex;
     private int _reading;
     private bool _watching;
     private bool _disposed;
@@ -29,6 +30,7 @@ public sealed class ClipboardMonitor : IAsyncDisposable
     {
         if (_watching) return Task.CompletedTask;
         _options = options;
+        _captureIndex = 0;
         _lastSequence = GetClipboardSequenceNumber();
         Clipboard.ContentChanged += OnContentChanged;
         _watching = true;
@@ -56,7 +58,7 @@ public sealed class ClipboardMonitor : IAsyncDisposable
         if (sequence == _lastSequence) return;
         _lastSequence = sequence;
         // Stamp acceptance before any asynchronous clipboard read, including reads still pending at Clear.
-        var task = ReadImageAsync(_options, History.Generation);
+        var task = ReadImageAsync(_options, History.Generation, DateTimeOffset.Now);
         _pending.Add(task);
         _ = ForgetCompletedAsync(task);
     }
@@ -67,13 +69,14 @@ public sealed class ClipboardMonitor : IAsyncDisposable
         _pending.Remove(task);
     }
 
-    private async Task ReadImageAsync(SaveOptions options, long generation)
+    private async Task ReadImageAsync(SaveOptions options, long generation, DateTimeOffset acceptedAt)
     {
         var entered = false;
         try
         {
             var content = Clipboard.GetContent();
             if (!content.Contains(StandardDataFormats.Bitmap)) return;
+            var captureIndex = _captureIndex++;
             if (_reading >= 2)
                 throw new IOException("Clipboard images are arriving too quickly. Copy the image again.");
             _reading++;
@@ -93,7 +96,8 @@ public sealed class ClipboardMonitor : IAsyncDisposable
                     throw new InvalidDataException("The clipboard image exceeds the 128 MB limit.");
                 bytes.Write(buffer, 0, count);
             }
-            if (!_images.Writer.TryWrite(new CapturedImage(bytes.ToArray(), options, generation)))
+            if (!_images.Writer.TryWrite(new CapturedImage(bytes.ToArray(), options, generation)
+                { AcceptedAt = acceptedAt, CaptureIndex = captureIndex }))
                 throw new IOException("Image saving is busy. Copy the image again after a moment.");
         }
         catch (Exception exception)
