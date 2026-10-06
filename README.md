@@ -17,8 +17,8 @@ saved image, and recent successes and failures.
    row with its local save time. **Save failed** and **Failed** rows expose the
    reason; select **Details** for the full path, time, and exception message.
 4. Press **Stop** to stop accepting clipboard changes. Images already being read
-   or saved finish in the background. Stop before changing folder, format or JPEG
-   quality. All three options are fixed for each monitoring run and retained by
+   or saved finish in the background. Stop before changing folder, format, JPEG
+   quality or filename rules. Save options are fixed for each monitoring run and retained by
    images already accepted, even after Stop.
 5. **Clear History**, next to **Recent files**, clears the current session's list,
    preview, image captions and success/failure messages. It works while monitoring
@@ -26,9 +26,11 @@ saved image, and recent successes and failures.
    the Windows clipboard and its history are unchanged. Monitoring and pending
    saves continue. Previously accepted images finish saving without returning to
    the cleared screen; images copied after Clear appear normally. This is a screen
-   cleanup action, not secure deletion. The save-folder setting is kept.
+   cleanup action, not secure deletion. Folder settings, filename presets and
+   numbering state are kept.
 
-The save folder is remembered in `config.ini` beside the executable. Image format,
+The save folder, filename formula, active preset and saved user presets are
+remembered in `config.ini` beside the executable. Image format,
 JPEG quality and the latest 100 history rows are session-only. Files remain on disk.
 Closing the window waits for accepted reads and writes to finish. JPEG images
 are composited onto white because JPEG cannot store transparency. Failed writes
@@ -77,6 +79,76 @@ warns that it was not remembered. The app does not request elevation or silently
 move configuration elsewhere. Saved images and clipboard contents are unaffected.
 Settings I/O and validation run off the UI thread, separately from clipboard reads
 and the image-saving worker; rapid preference updates are serialized.
+
+## Filename formulas and user presets
+
+Open **Filename rules and presets** under **Save settings** while stopped. Enter
+a filename-stem **Formula** and inspect its **Example**. The default is
+`Clipboard_$YYYY$MM$DD_$hh$mm$ss_$fff`, for example
+`Clipboard_20261006_090305_123.png`. The chosen image format adds `.png`, `.jpg` or
+`.bmp`; omit the extension from the formula.
+
+The formula notation follows [PowerRename](https://learn.microsoft.com/windows/powertoys/powerrename):
+
+| Variables | Meaning |
+| --- | --- |
+| `$YYYY`, `$YY`, `$Y` | Full year, last two digits, last digit |
+| `$MMMM`, `$MMM`, `$MM`, `$M` | Month name, abbreviated name, padded/unpadded number |
+| `$DDDD`, `$DDD`, `$DD`, `$D` | Weekday name, abbreviated name, padded/unpadded day |
+| `$hh`, `$h`, `$mm`, `$m`, `$ss`, `$s` | Padded/unpadded hours, minutes and seconds |
+| `$fff`, `$ff`, `$f` | Three, first two or first one millisecond digits |
+| `${}` | Zero-based counter |
+| `${start=10;padding=4;increment=2}` | Counter producing `0010`, `0012`, `0014`, etc. |
+| `${rstringalnum=8}`, `${rstringalpha=8}`, `${rstringdigit=8}` | Random alphanumeric, alphabetic or digit strings |
+| `${ruuidv4}` | Random version-4 UUID |
+
+Multiple counters use the same accepted-capture index, with independent start,
+padding and increment options. Start and increment accept signed 64-bit integers;
+padding is 0–255, and random-string lengths are 1–255. These bounds do not override
+the final Windows filename-length check. Use `$$` to insert a literal dollar sign.
+Unknown expressions, path separators, control characters, reserved Windows
+device names and trailing dots/spaces are rejected with an explanation. Components
+including the extension must fit within 255 characters. A later suffix that would
+exceed the limit is reported as a save failure. Other OS/path errors are also
+reported instead of silently changing a rule.
+
+Date variables use **local capture-acceptance time**, fixed before asynchronous
+clipboard reads, rather than the later save time or an existing file's creation
+date. Month/weekday names use invariant English and the Gregorian calendar.
+Numbering starts afresh with each **Start**; Clear History does not reset it.
+Rejected or failed captures can leave number gaps. Accepted images retain their
+formula, timestamp and index through Stop, preset changes and later monitoring
+runs. Viewing examples never advances actual counters or creates/reserves files.
+Search/replace, regex renaming and EXIF/XMP variables are not supported.
+
+To create a preset, enter a **Preset name** and choose **Save Preset**. Choose a
+saved preset to restore its formula. Edit the formula and save with the same name
+to update it after confirmation; names are matched without case sensitivity.
+Cancel keeps the saved formula, while the edited formula remains in the field.
+Saving under a different name creates another preset. **Delete Preset** confirms
+the operation, removes that preset and selects **Default (built-in)**; the built-in
+rule cannot be deleted. Preset deletion never deletes images or changes the clipboard
+or pending saves. Controls are disabled while monitoring; Stop to edit them.
+
+Presets are saved immediately when added, updated or deleted. Selecting a preset
+remembers the selection and formula. The current valid formula is also remembered
+on Start and normal close, even if its edits have not been saved into a named
+preset. The saved preset itself changes only through **Save Preset**. `config.ini`
+stores `[Naming]` entries `Formula` and `SelectedPreset`, and `[NamingPresets]`
+entries `Preset.<id>` containing JSON-encoded ID/name/formula records so Unicode,
+quotes and INI punctuation round-trip safely. The file is still optional; no user
+configuration is bundled in the artifact. Malformed preset data is preserved with
+a warning and a usable default. Failed configuration writes leave changes available
+only for the current session, with a warning; they are not reported as durable.
+Folder and preset writes share serialized atomic updates, retaining unrelated INI
+entries/comments and the existing save-folder setting.
+
+Existing files and directories are never replaced. If `name.png` is occupied,
+the app tries `name (2).png`, `name (3).png`, and so on, choosing the lowest
+available name. A fully encoded, uniquely named temporary image is moved into
+place without replacement. Concurrent claims retry the next candidate without
+re-encoding or exposing a partial final image. The new preset controls have a
+practical initial position; final layout and visual polish are a later UI task.
 
 ## Window and processing behavior
 
@@ -204,6 +276,14 @@ configuration and existing-file retention. UI Automation checks manual focus-los
 persistence and Browse selection/cancellation without Start or captures, restores
 the path across process restarts from a different working directory, checks the
 read-only configuration warning, and verifies persistent fallback to the default.
+Naming contracts verify all date/time variables, signed/multiple counters, random
+variables, preview isolation, invalid Windows names, frozen capture metadata,
+suffix gaps and occupied directories, concurrent non-overwriting moves, persistent
+preset changes, and concurrent folder/preset configuration writes. Real Windows
+encoding checks repeated names in all formats, complete output images and temporary
+cleanup. UI Automation exercises preset creation/reuse, update/delete confirmations
+and cancellation, restart restoration, formula validation, locked monitoring controls,
+counter behavior across Clear/Start and preserved files/settings.
 The artifact is uploaded
 only after these checks pass. CI then downloads that artifact and compares
 every file's relative path and SHA-256 hash with the publish output, including a

@@ -17,6 +17,15 @@ public sealed partial class MainWindow : Window
     private readonly ClipboardMonitor _monitor = new();
     private readonly ObservableCollection<HistoryItem> _history = [];
     private readonly SaveFolderPreferences _preferences = SaveFolderPreferences.ForCurrentProcess();
+    private readonly NamingPreferences _namingPreferences;
+    private readonly ObservableCollection<NamingPreset> _presets = [];
+    private NamingState _namingState = NamingState.Default;
+    private Task<NamingPreference>? _namingUpdate;
+    private bool _namingReady;
+    private bool _namingValid;
+    private bool _updatingNaming;
+    private bool _presetBusy;
+    private ContentDialog? _presetDialog;
     private readonly DispatcherQueueTimer _refresh;
     private Task<FolderPreference>? _folderUpdate;
     private int _folderRevision;
@@ -33,11 +42,13 @@ public sealed partial class MainWindow : Window
 
     public MainWindow()
     {
+        _namingPreferences = new NamingPreferences(_preferences.ConfigPath);
         InitializeComponent();
         UpdateQualityVisibility();
         WindowPlacement.Apply(AppWindow);
         FolderPath.Text = _preferences.DefaultFolder;
         HistoryList.ItemsSource = _history;
+        PresetPicker.ItemsSource = _presets;
         _refresh = DispatcherQueue.CreateTimer();
         _refresh.Interval = TimeSpan.FromMilliseconds(250);
         _refresh.Tick += RefreshResults;
@@ -50,8 +61,154 @@ public sealed partial class MainWindow : Window
     private async Task InitializeFolderAsync()
     {
         await UpdateFolderAsync(null);
+        if (_closing) return;
         _folderReady = true;
+        var naming = await _namingPreferences.LoadAsync();
+        if (_closing) return;
+        ApplyNamingState(naming.State);
+        _namingReady = true;
+        if (naming.Warning is not null) ShowNamingWarning(naming.Warning, _monitor.History.Generation);
         if (!_closing) SetControls();
+    }
+
+    private void ApplyNamingState(NamingState state)
+    {
+        _namingState = state;
+        _updatingNaming = true;
+        try
+        {
+            _presets.Clear();
+            _presets.Add(NamingPreset.Default);
+            foreach (var preset in state.Presets) _presets.Add(preset);
+            var selected = _presets.First(preset => preset.Id == state.SelectedPresetId);
+            PresetPicker.SelectedItem = selected;
+            PresetName.Text = selected.Id.Length == 0 ? "" : selected.Name;
+            RuleFormula.Text = state.Formula;
+        }
+        finally { _updatingNaming = false; }
+        UpdateRulePreview();
+    }
+
+    private NamingState CurrentNamingState() => _namingState with
+    {
+        Formula = RuleFormula.Text,
+        SelectedPresetId = (PresetPicker.SelectedItem as NamingPreset)?.Id ?? ""
+    };
+
+    private Task<NamingPreference> SaveNamingAsync(NamingState state)
+    {
+        var previous = _namingUpdate;
+        var generation = _monitor.History.Generation;
+        return _namingUpdate = SaveAsync();
+        async Task<NamingPreference> SaveAsync()
+        {
+            if (previous is not null) await previous;
+            var result = await _namingPreferences.SaveAsync(state);
+            if (!_closing && result.Warning is not null) ShowNamingWarning(result.Warning, generation);
+            return result;
+        }
+    }
+
+    private void ShowNamingWarning(string message, long generation)
+    {
+        if (!_monitor.History.IsCurrent(generation)) return;
+        SettingsMessage.Title = "Filename preset settings";
+        SettingsMessage.Message = message;
+        SettingsMessage.Severity = InfoBarSeverity.Warning;
+        SettingsMessage.IsOpen = true;
+    }
+
+    private async void Preset_SelectionChanged(object sender, SelectionChangedEventArgs args)
+    {
+        if (_updatingNaming || !_namingReady || _watching || _starting || _closing ||
+            PresetPicker.SelectedItem is not NamingPreset preset) return;
+        RuleFormula.Text = preset.Formula;
+        PresetName.Text = preset.Id.Length == 0 ? "" : preset.Name;
+        _namingState = CurrentNamingState();
+        try { await SaveNamingAsync(_namingState); }
+        catch (Exception exception) { ShowNamingWarning(exception.Message, _monitor.History.Generation); }
+        if (!_closing) SetControls();
+    }
+
+    private void RuleFormula_TextChanged(object sender, TextChangedEventArgs args)
+    {
+        if (_updatingNaming) return;
+        UpdateRulePreview();
+        if (_namingReady && !_closing) SetControls();
+    }
+
+    private void UpdateRulePreview()
+    {
+        if (RuleFormula is null || RulePreview is null || FormatPicker is null) return;
+        try
+        {
+            var extension = FormatPicker.SelectedIndex switch { 1 => "jpg", 2 => "bmp", _ => "png" };
+            var name = FilenameRule.Parse(RuleFormula.Text).Generate(DateTimeOffset.Now, 0) + "." + extension;
+            FilenameRule.ValidateName(name);
+            RulePreview.Text = "Example: " + name;
+            _namingValid = true;
+        }
+        catch (FormatException exception)
+        {
+            RulePreview.Text = "Invalid formula: " + exception.Message;
+            _namingValid = false;
+        }
+    }
+
+    private async Task<bool> ConfirmPresetAsync(string title, string message, string action)
+    {
+        if (_detailsOpen || _closing) return false;
+        var dialog = new ContentDialog
+        {
+            XamlRoot = RootGrid.XamlRoot, Title = title,
+            Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
+            PrimaryButtonText = action, CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close
+        };
+        AutomationProperties.SetAutomationId(dialog, "PresetConfirmation");
+        _presetDialog = dialog;
+        try { return await dialog.ShowAsync() == ContentDialogResult.Primary; }
+        finally { _presetDialog = null; }
+    }
+
+    private async void SavePreset_Click(object sender, RoutedEventArgs args)
+    {
+        if (_presetBusy || _closing || _watching || !_namingReady || !_namingValid) return;
+        _presetBusy = true;
+        SetControls();
+        var generation = _monitor.History.Generation;
+        try
+        {
+            var name = PresetName.Text.Trim();
+            if (name.Length == 0 || name.Any(c => c < 32)) throw new ArgumentException("Enter a preset name without control characters.");
+            var existing = _namingState.Presets.FirstOrDefault(p => p.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+            if (existing is not null && !await ConfirmPresetAsync("Update preset?", $"Replace the saved formula in '{existing.Name}'?", "Update")) return;
+            if (_closing) return;
+            var preset = new NamingPreset(existing?.Id ?? Guid.NewGuid().ToString("N"), name, RuleFormula.Text);
+            var presets = _namingState.Presets.Where(p => p.Id != preset.Id).Append(preset).ToArray();
+            var state = new NamingState(preset.Formula, preset.Id, presets);
+            await SaveNamingAsync(state);
+            if (!_closing) ApplyNamingState(state);
+        }
+        catch (Exception exception) { ShowResult("Could not save preset", exception.Message, InfoBarSeverity.Error, generation); }
+        finally { _presetBusy = false; if (!_closing) SetControls(); }
+    }
+
+    private async void DeletePreset_Click(object sender, RoutedEventArgs args)
+    {
+        if (_presetBusy || _closing || _watching || !_namingReady ||
+            PresetPicker.SelectedItem is not NamingPreset preset || preset.Id.Length == 0) return;
+        _presetBusy = true;
+        SetControls();
+        var generation = _monitor.History.Generation;
+        try
+        {
+            if (!await ConfirmPresetAsync("Delete preset?", $"Delete '{preset.Name}'? Saved images will be kept. The default filename rule will be selected.", "Delete") || _closing) return;
+            var state = new NamingState(FilenameRule.DefaultFormula, "", _namingState.Presets.Where(p => p.Id != preset.Id).ToArray());
+            await SaveNamingAsync(state);
+            if (!_closing) ApplyNamingState(state);
+        }
+        catch (Exception exception) { ShowResult("Could not delete preset", exception.Message, InfoBarSeverity.Error, generation); }
+        finally { _presetBusy = false; if (!_closing) SetControls(); }
     }
 
     private Task<FolderPreference> UpdateFolderAsync(string? input)
@@ -89,7 +246,7 @@ public sealed partial class MainWindow : Window
 
     private async void Start_Click(object sender, RoutedEventArgs args)
     {
-        if (_closing || _starting || !_folderReady) return;
+        if (_closing || _starting || _presetBusy || !_folderReady || !_namingReady || !_namingValid) return;
         var generation = _monitor.History.Generation;
         _starting = true;
         SetControls();
@@ -100,7 +257,10 @@ public sealed partial class MainWindow : Window
             if (!preference.CanUse) throw new IOException("Choose a usable save folder before starting monitoring.");
             var folder = preference.Folder;
             var options = new SaveOptions(folder, (ImageFormat)FormatPicker.SelectedIndex,
-                (int)Math.Round(JpegQuality.Value));
+                (int)Math.Round(JpegQuality.Value), RuleFormula.Text);
+            _namingState = CurrentNamingState();
+            await SaveNamingAsync(_namingState);
+            if (_closing) return;
             await _monitor.StartAsync(options);
             FolderPath.Text = folder;
             _watching = true;
@@ -139,16 +299,26 @@ public sealed partial class MainWindow : Window
 
     private void SetControls()
     {
-        var editable = _folderReady && !_watching && !_starting;
-        StartButton.IsEnabled = editable;
+        var editable = _folderReady && _namingReady && !_watching && !_starting && !_presetBusy;
+        StartButton.IsEnabled = editable && _namingValid;
         StopButton.IsEnabled = _watching;
         FolderPath.IsEnabled = editable;
         BrowseButton.IsEnabled = editable;
         FormatPicker.IsEnabled = editable;
         JpegQuality.IsEnabled = editable;
+        PresetPicker.IsEnabled = editable;
+        RuleFormula.IsEnabled = editable;
+        PresetName.IsEnabled = editable;
+        SavePresetButton.IsEnabled = editable && _namingValid;
+        DeletePresetButton.IsEnabled = editable && PresetPicker.SelectedItem is NamingPreset { Id.Length: > 0 };
     }
 
-    private void Format_SelectionChanged(object sender, SelectionChangedEventArgs args) => UpdateQualityVisibility();
+    private void Format_SelectionChanged(object sender, SelectionChangedEventArgs args)
+    {
+        UpdateQualityVisibility();
+        UpdateRulePreview();
+        if (_namingReady && !_closing) SetControls();
+    }
 
     private void UpdateQualityVisibility()
     {
@@ -272,7 +442,7 @@ public sealed partial class MainWindow : Window
 
     private async void Details_Click(object sender, RoutedEventArgs args)
     {
-        if (_detailsOpen || _closing || ((FrameworkElement)sender).DataContext is not HistoryItem item) return;
+        if (_detailsOpen || _presetBusy || _closing || ((FrameworkElement)sender).DataContext is not HistoryItem item) return;
         if (!_monitor.History.IsCurrent(item.Result.Generation)) return;
         var dialog = new ContentDialog
         {
@@ -305,10 +475,13 @@ public sealed partial class MainWindow : Window
         MonitoringStatus.Text = "Finishing saves";
         _refresh.Stop();
         _previewCancellation?.Cancel();
+        _presetDialog?.Hide();
         try
         {
             if (_folderReady && !_watching && !_starting) await UpdateFolderAsync(FolderPath.Text);
             if (_folderUpdate is not null) await _folderUpdate;
+            if (_namingReady && !_watching && !_starting && !_presetBusy && _namingValid) await SaveNamingAsync(CurrentNamingState());
+            if (_namingUpdate is not null) await _namingUpdate;
             await _monitor.DisposeAsync();
         }
         finally { _allowClose = true; Close(); }
