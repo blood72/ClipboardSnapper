@@ -5,6 +5,7 @@ static class NamingContracts
 {
     public static async Task RunAsync()
     {
+        VerifyProfileLifecycle();
         // Use local time so the expected capture-time fields are independent of the runner's time zone.
         var accepted = new DateTimeOffset(new DateTime(2026, 10, 6, 9, 3, 5, 123, DateTimeKind.Local));
         Check.That(FilenameRule.Parse(FilenameRule.DefaultFormula).Generate(accepted, 0) == "Clipboard_20261006_090305_123", "Default formula did not use capture time.");
@@ -88,6 +89,9 @@ static class NamingContracts
         var config = Path.Combine(root, "config.ini");
         var preferences = new NamingPreferences(config);
         Check.That((await preferences.LoadAsync()) is { Warning: null, State.Formula: FilenameRule.DefaultFormula }, "First launch did not supply a default rule.");
+        var first = (await preferences.LoadAsync()).State;
+        Check.That(first.Selected is not null && first.Presets.Count == 1 && first.Selected.Id.Length > 0,
+            "First launch must supply an ordinary editable profile, not a synthetic default.");
         var unrelated = "; Preserve this comment\r\n[Updates]\r\nEnabled=false\r\nInterval=weekly\r\n";
         await File.WriteAllTextAsync(config, unrelated);
         var folderPreferences = new SaveFolderPreferences(config, Path.Combine(root, "default"));
@@ -128,10 +132,10 @@ static class NamingContracts
             Check.That((await preferences.SaveAsync(state)).Warning is null,
                 "Configuration saving did not recover after a replacement lock was released.");
         }
-        await preferences.SaveAsync(NamingState.Default);
+        await preferences.SaveAsync(NamingState.Empty);
         loaded = await preferences.LoadAsync();
         Check.That(loaded.State.Presets.Count == 0 && loaded.State.SelectedPresetId == "" && loaded.State.Formula == FilenameRule.DefaultFormula,
-            "Deleted preset returned after restart or default selection was not restored.");
+            "Deleting the last profile did not persist an empty collection across restart.");
         foreach (var malformed in new[] { "[broken\n", "[NamingPresets]\nPreset." + preset.Id + "=not-json\n", "[Naming]\nFormula=NUL\n", "[Naming]\nSelectedPreset=missing\n", "[Naming]\nFormula=" + new string('a', 252) + "\n" })
         {
             await File.WriteAllTextAsync(config, malformed);
@@ -140,5 +144,38 @@ static class NamingContracts
                 "Malformed presets were replaced and lost.");
         }
         Check.That(!Directory.EnumerateFiles(root, "config.ini.*.tmp").Any(), "Preset persistence left temporary files behind.");
+    }
+
+    private static void VerifyProfileLifecycle()
+    {
+        var state = NamingState.Default;
+        var initialId = state.SelectedPresetId;
+        state = state.UpdateSelected("Renamed default", "Edited_${start=4}");
+        Check.That(state.Presets.Count == 1 && state.SelectedPresetId == initialId && state.Selected?.Name == "Renamed default",
+            "Editing or renaming the initial profile must update the same ordinary profile.");
+        var original = state.Selected!;
+        var duplicate = state.DuplicateProfile();
+        Check.That(duplicate.Presets.Count == 2 && duplicate.SelectedPresetId != original.Id && duplicate.Selected?.Formula == original.Formula,
+            "Duplicate must copy the selected saved formula with a new ID.");
+        duplicate = duplicate.UpdateSelected("My copy", "Copy_${start=8}");
+        Check.That(duplicate.Presets.Single(p => p.Id == original.Id) == original,
+            "Editing a duplicate changed its source profile.");
+        var fresh = duplicate.NewProfile();
+        Check.That(fresh.Selected?.Formula == FilenameRule.DefaultFormula && fresh.Presets.Count == 3,
+            "New must use the default formula rather than copy the selected profile.");
+        var freshId = fresh.SelectedPresetId;
+        fresh = fresh.UpdateSelected("New name", "Fresh_${}");
+        fresh = fresh.UpdateSelected("New name", "Fresh_${start=5}");
+        Check.That(fresh.SelectedPresetId == freshId && fresh.Presets.Count == 3,
+            "Renaming or repeatedly saving must neither create a profile nor change its ID.");
+        try { fresh.UpdateSelected("renamed DEFAULT", "Wrong_${}"); throw new Exception("Duplicate-name save unexpectedly succeeded."); }
+        catch (ArgumentException) { }
+        Check.That(fresh.Presets.Single(p => p.Id == original.Id) == original, "A conflicting name changed another profile.");
+        var repeated = fresh.DuplicateProfile().DuplicateProfile();
+        Check.That(repeated.Presets.Select(p => p.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count() == repeated.Presets.Count,
+            "Repeated duplication produced ambiguous profile names.");
+        while (fresh.Selected is not null) fresh = fresh.DeleteSelected();
+        Check.That(fresh.Presets.Count == 0 && fresh.Selected is null && fresh.NewProfile().Selected?.Formula == FilenameRule.DefaultFormula,
+            "Every profile must be deletable and New must recover from an empty collection.");
     }
 }

@@ -109,11 +109,16 @@ function Read-Config {
         try { return $reader.ReadToEnd() } finally { $reader.Dispose() }
     } finally { $stream.Dispose() }
 }
+function Get-Profiles {
+    foreach ($match in [regex]::Matches((Read-Config), '(?m)^Preset\.[^=\r\n]+=([^\r\n]+)')) {
+        $match.Groups[1].Value | ConvertFrom-Json
+    }
+}
 function Start-App {
     $script:process = Start-Process (Join-Path $publish 'ClipboardSnapper.exe') -WorkingDirectory $testFolder -PassThru
     Wait-For { $process.Refresh(); $process.MainWindowHandle -ne [IntPtr]::Zero } 'the main window'
     $script:root = [System.Windows.Automation.AutomationElement]::FromHandle($process.MainWindowHandle)
-    Wait-For { $null -ne (Find-Control 'StartButton') -and (Find-Control 'StartButton').Current.IsEnabled } 'loaded save-folder settings'
+    Wait-For { $null -ne (Find-Control 'FormatPicker') -and (Find-Control 'FormatPicker').Current.IsEnabled } 'loaded folder and profile settings'
     if ((Find-Control 'MonitoringStatus').Current.Name -ne 'Ready') { throw 'Initial state is not Ready.' }
 }
 function Close-App {
@@ -182,7 +187,7 @@ function Confirm-Preset([string]$Action) {
     Wait-For { $null -ne (Find-Control 'PresetConfirmation') } 'preset confirmation'
     Invoke-Control (Find-Name (Find-Control 'PresetConfirmation') $Action)
     Wait-For { $null -eq (Find-Control 'PresetConfirmation') } 'closed preset confirmation'
-    Wait-For { (Find-Control 'SavePresetButton').Current.IsEnabled } 'finished preset change'
+    Wait-For { $null -ne (Find-Control 'NewProfileButton') -and (Find-Control 'NewProfileButton').Current.IsEnabled } 'finished profile change'
 }
 function Copy-Image {
     $bitmap = [System.Drawing.Bitmap]::new(32, 24)
@@ -327,39 +332,63 @@ try {
     Expand-Naming $true
     $defaultRule = 'Clipboard_$YYYY$MM$DD_$hh$mm$ss_$fff'
     if ((Text-Value 'RuleFormula') -ne $defaultRule) { throw 'Unexpected default filename formula.' }
+    $initialId = (Get-Profiles | Where-Object Name -eq 'Default').Id
     Set-Text 'RuleFormula' 'Preset_${start=10;padding=4;increment=2}'
     if ((Find-Control 'RulePreview').Current.Name -ne 'Example: Preset_0010.png') { throw 'Counter preview is wrong.' }
     Set-Text 'PresetName' 'Capture series'
     Invoke-Id 'SavePresetButton'
-    Wait-For { (Read-Config).Contains('Capture series') -and (Find-Control 'SavePresetButton').Current.IsEnabled } 'new named preset'
+    Wait-For { (Get-Profiles | Where-Object Name -eq 'Capture series').Formula -eq 'Preset_${start=10;padding=4;increment=2}' -and (Find-Control 'NewProfileButton').Current.IsEnabled } 'ordinary default updated and renamed without a prompt'
+    if (@(Get-Profiles).Count -ne 1 -or @(Get-Profiles)[0].Id -ne $initialId -or $null -ne (Find-Control 'PresetConfirmation')) { throw 'Save renamed by creating another profile or prompting.' }
+
+    # Duplicate uses the selected saved formula, with an independent identity.
+    Set-Text 'RuleFormula' 'Unsaved_${start=999}'
+    Invoke-Id 'DuplicateProfileButton'
+    Wait-For { @(Get-Profiles).Count -eq 2 -and (Find-Control 'NewProfileButton').Current.IsEnabled } 'duplicated profile'
+    if ((Text-Value 'RuleFormula') -ne 'Preset_${start=10;padding=4;increment=2}') { throw 'Duplicate did not copy the saved source formula.' }
+    $copyId = (Get-Profiles | Where-Object Name -eq 'Capture series copy').Id
+    if ($copyId -eq $initialId) { throw 'Duplicate reused the source ID.' }
+    Set-Text 'RuleFormula' 'Copy_${start=1}'
+    Set-Text 'PresetName' 'My copy'
+    Invoke-Id 'SavePresetButton'
+    Wait-For { (Get-Profiles | Where-Object Name -eq 'My copy').Formula -eq 'Copy_${start=1}' -and (Find-Control 'NewProfileButton').Current.IsEnabled } 'independent duplicate update'
+    if ((Get-Profiles | Where-Object Id -eq $initialId).Formula -ne 'Preset_${start=10;padding=4;increment=2}') { throw 'Editing a copy changed its source.' }
+    Invoke-Id 'DeletePresetButton'
+    Confirm-Preset 'Delete'
+
+    # New always starts from the default, even when the selected rule is custom.
+    Invoke-Id 'NewProfileButton'
+    Wait-For { @(Get-Profiles).Count -eq 2 -and (Find-Control 'NewProfileButton').Current.IsEnabled } 'new profile'
+    if ((Text-Value 'RuleFormula') -ne $defaultRule) { throw 'New copied the selected custom formula.' }
     Set-Text 'RuleFormula' 'Date_$YYYY$MM$DD'
     Set-Text 'PresetName' 'By date'
     Invoke-Id 'SavePresetButton'
-    Wait-For { (Read-Config).Contains('By date') -and (Find-Control 'SavePresetButton').Current.IsEnabled } 'second named preset'
+    Wait-For { (Get-Profiles | Where-Object Name -eq 'By date').Formula -eq 'Date_$YYYY$MM$DD' -and (Find-Control 'NewProfileButton').Current.IsEnabled } 'new profile renamed and updated'
+    $dateId = (Get-Profiles | Where-Object Name -eq 'By date').Id
+
+    # A conflicting name is an error, never an overwrite or a creation/update prompt.
+    Set-Text 'PresetName' 'CAPTURE SERIES'
+    Invoke-Id 'SavePresetButton'
+    Wait-For { $null -ne (Find-Name $root 'Could not change profile') -and (Find-Control 'NewProfileButton').Current.IsEnabled } 'conflicting name rejection'
+    if (@(Get-Profiles).Count -ne 2 -or (Get-Profiles | Where-Object Id -eq $dateId).Name -ne 'By date' -or $null -ne (Find-Control 'PresetConfirmation')) { throw 'A conflicting name overwrote another profile or prompted.' }
     Select-Option 'PresetPicker' 'Capture series'
-    Wait-For { (Text-Value 'RuleFormula') -eq 'Preset_${start=10;padding=4;increment=2}' } 'reused preset formula'
+    Wait-For { (Text-Value 'RuleFormula') -eq 'Preset_${start=10;padding=4;increment=2}' } 'reused profile formula'
     Set-Text 'RuleFormula' 'Preset_${start=20;padding=4;increment=2}'
     Invoke-Id 'SavePresetButton'
-    Confirm-Preset 'Cancel'
-    if ((Read-Config).Contains('start=20')) { throw 'Cancelled update modified the saved preset.' }
-    Invoke-Id 'SavePresetButton'
-    Confirm-Preset 'Update'
-    Wait-For { (Read-Config).Contains('start=20') } 'updated preset'
+    Wait-For { (Get-Profiles | Where-Object Id -eq $initialId).Formula -eq 'Preset_${start=20;padding=4;increment=2}' -and (Find-Control 'NewProfileButton').Current.IsEnabled } 'same-name update without confirmation'
+    if (@(Get-Profiles).Count -ne 2 -or $null -ne (Find-Control 'PresetConfirmation')) { throw 'Save created another profile or prompted.' }
     Close-App
     Start-App
     Expand-Naming $true
-    if ((Text-Value 'RuleFormula') -ne 'Preset_${start=20;padding=4;increment=2}' -or (Text-Value 'PresetName') -ne 'Capture series') {
-        throw 'Saved preset and active selection did not survive restart.'
-    }
+    if ((Text-Value 'RuleFormula') -ne 'Preset_${start=20;padding=4;increment=2}' -or (Text-Value 'PresetName') -ne 'Capture series') { throw 'Saved profile and active selection did not survive restart.' }
     Commit-Folder $testFolder
     Start-Monitoring
-    foreach ($id in @('RuleFormula', 'PresetPicker', 'PresetName', 'SavePresetButton', 'DeletePresetButton')) {
+    foreach ($id in @('RuleFormula', 'PresetPicker', 'PresetName', 'NewProfileButton', 'DuplicateProfileButton', 'SavePresetButton', 'DeletePresetButton')) {
         if ((Find-Control $id).Current.IsEnabled) { throw "$id is editable while monitoring." }
     }
     Expand-Naming $false
     Copy-Image
-    Wait-For { Test-Path (Join-Path $testFolder 'Preset_0020.png') } 'preset filename'
-    Wait-For { $null -ne (Find-Control 'PreviewImage') } 'preset image preview'
+    Wait-For { Test-Path (Join-Path $testFolder 'Preset_0020.png') } 'profile filename'
+    Wait-For { $null -ne (Find-Control 'PreviewImage') } 'profile image preview'
     Clear-History
     Copy-Image
     Wait-For { Test-Path (Join-Path $testFolder 'Preset_0022.png') } 'numbering continues after Clear'
@@ -376,34 +405,44 @@ try {
     $beforeDelete = @(Get-ChildItem $testFolder -File | ForEach-Object { (Get-FileHash $_.FullName).Hash }) -join ','
     Invoke-Id 'DeletePresetButton'
     Confirm-Preset 'Cancel'
-    if (-not (Read-Config).Contains('Capture series')) { throw 'Cancelled deletion removed a preset.' }
+    if (-not (Read-Config).Contains('Capture series')) { throw 'Cancelled deletion removed a profile.' }
     Invoke-Id 'DeletePresetButton'
     Confirm-Preset 'Delete'
-    if ((Text-Value 'RuleFormula') -ne $defaultRule -or (Read-Config).Contains('Capture series')) { throw 'Deletion did not select the default or remove the preset.' }
+    if ((Text-Value 'RuleFormula') -ne 'Date_$YYYY$MM$DD' -or (Read-Config).Contains('Capture series')) { throw 'Deletion did not select a remaining profile.' }
     $afterDelete = @(Get-ChildItem $testFolder -File | ForEach-Object { (Get-FileHash $_.FullName).Hash }) -join ','
-    if ($beforeDelete -ne $afterDelete) { throw 'Deleting a preset changed saved images.' }
+    if ($beforeDelete -ne $afterDelete) { throw 'Deleting a profile changed saved images.' }
     Close-App
     Start-App
     Expand-Naming $true
-    if ((Text-Value 'RuleFormula') -ne $defaultRule -or (Text-Value 'PresetName') -ne '') { throw 'Deleted preset returned on restart.' }
-    Select-Option 'PresetPicker' 'By date'
+    if ((Text-Value 'PresetName') -ne 'By date') { throw 'Deleted profile returned on restart.' }
     Invoke-Id 'DeletePresetButton'
     Confirm-Preset 'Delete'
-    if (-not (Read-Config).Contains($unrelated)) { throw 'Preset CRUD lost unrelated INI settings.' }
+    if (@(Get-Profiles).Count -ne 0 -or (Text-Value 'RuleFormula') -ne '' -or (Find-Control 'StartButton').Current.IsEnabled) { throw 'Deleting the last profile did not leave an empty state.' }
+    foreach ($id in @('RuleFormula', 'PresetName', 'DuplicateProfileButton', 'SavePresetButton', 'DeletePresetButton')) {
+        if ((Find-Control $id).Current.IsEnabled) { throw "$id remains enabled with no profile." }
+    }
+    Close-App
+    Start-App
+    Expand-Naming $true
+    if (@(Get-Profiles).Count -ne 0 -or -not (Find-Control 'RulePreview').Current.Name.StartsWith('No profiles.') -or (Find-Control 'StartButton').Current.IsEnabled) { throw 'An empty collection was silently recreated on restart.' }
+    Invoke-Id 'NewProfileButton'
+    Wait-For { @(Get-Profiles).Count -eq 1 -and (Find-Control 'StartButton').Current.IsEnabled } 'new profile after an empty collection'
+    if ((Text-Value 'RuleFormula') -ne $defaultRule) { throw 'New did not recover the default rule.' }
+    if (-not (Read-Config).Contains($unrelated)) { throw 'Profile CRUD lost unrelated INI settings.' }
     $beforePresetWriteFailure = Read-Config
     [IO.File]::SetAttributes($config, [IO.FileAttributes]::ReadOnly)
     Set-Text 'RuleFormula' 'Session_${start=1}'
     Set-Text 'PresetName' 'Session only'
     Invoke-Id 'SavePresetButton'
-    Wait-For { (Find-Control 'SavePresetButton').Current.IsEnabled -and $null -ne (Find-Name (Find-Control 'SettingsMessage') 'Filename preset settings') } 'preset persistence warning'
-    if ((Read-Config) -ne $beforePresetWriteFailure) { throw 'Saving a preset changed a read-only configuration.' }
+    Wait-For { (Find-Control 'NewProfileButton').Current.IsEnabled -and $null -ne (Find-Name (Find-Control 'SettingsMessage') 'Filename preset settings') } 'profile persistence warning'
+    if ((Read-Config) -ne $beforePresetWriteFailure) { throw 'Saving a profile changed a read-only configuration.' }
     Close-App
     [IO.File]::SetAttributes($config, [IO.FileAttributes]::Normal)
     Start-App
     Expand-Naming $true
-    if ((Text-Value 'RuleFormula') -ne $defaultRule -or (Read-Config).Contains('Session only')) { throw 'Failed preset write was treated as durable after restart.' }
+    if ((Text-Value 'RuleFormula') -ne $defaultRule -or (Read-Config).Contains('Session only')) { throw 'Failed profile write was treated as durable after restart.' }
     Expand-Naming $false
-    Write-Output '::notice::Preset UI verified: create/select, formula preview, update/cancel, deletion/cancel, default fallback, restart persistence, active selection, invalid rule validation, immutable monitoring controls, counters across Clear/Start, collision suffixes and existing-image/config preservation.'
+    Write-Output '::notice::Profile UI verified: New default / Duplicate saved source, stable-ID save and rename without prompts, conflicting-name rejection, ordinary default editing/deletion, delete cancellation, empty collection/restart/recovery, read-only session changes, counters across Clear/Start, collision suffixes and existing-image/config preservation.'
 
     foreach ($format in @(@('PNG', 'png'), @('JPEG', 'jpg'), @('BMP', 'bmp'))) {
         Set-Folder $testFolder

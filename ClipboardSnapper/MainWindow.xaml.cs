@@ -78,18 +78,17 @@ public sealed partial class MainWindow : Window
         try
         {
             _presets.Clear();
-            _presets.Add(NamingPreset.Default);
             foreach (var preset in state.Presets) _presets.Add(preset);
-            var selected = _presets.First(preset => preset.Id == state.SelectedPresetId);
+            var selected = state.Selected;
             PresetPicker.SelectedItem = selected;
-            PresetName.Text = selected.Id.Length == 0 ? "" : selected.Name;
-            RuleFormula.Text = state.Formula;
+            PresetName.Text = selected?.Name ?? "";
+            RuleFormula.Text = selected is null ? "" : state.Formula;
         }
         finally { _updatingNaming = false; }
         UpdateRulePreview();
     }
 
-    private NamingState CurrentNamingState() => _namingState with
+    private NamingState CurrentNamingState() => _namingState.Selected is null ? _namingState : _namingState with
     {
         Formula = RuleFormula.Text,
         SelectedPresetId = (PresetPicker.SelectedItem as NamingPreset)?.Id ?? ""
@@ -129,7 +128,7 @@ public sealed partial class MainWindow : Window
         if (_updatingNaming || !_namingReady || _watching || _starting || _closing ||
             PresetPicker.SelectedItem is not NamingPreset preset) return;
         RuleFormula.Text = preset.Formula;
-        PresetName.Text = preset.Id.Length == 0 ? "" : preset.Name;
+        PresetName.Text = preset.Name;
         _namingState = CurrentNamingState();
         try { await SaveNamingAsync(_namingState); }
         catch (Exception exception) { ShowNamingWarning(exception.Message, _monitor.History.Generation); }
@@ -146,6 +145,12 @@ public sealed partial class MainWindow : Window
     private void UpdateRulePreview()
     {
         if (RuleFormula is null || RulePreview is null || FormatPicker is null) return;
+        if (_namingState.Selected is null)
+        {
+            RulePreview.Text = "No profiles. Choose New Profile to create a filename rule.";
+            _namingValid = false;
+            return;
+        }
         try
         {
             var extension = FormatPicker.SelectedIndex switch { 1 => "jpg", 2 => "bmp", _ => "png" };
@@ -176,40 +181,43 @@ public sealed partial class MainWindow : Window
         finally { _presetDialog = null; }
     }
 
-    private async void SavePreset_Click(object sender, RoutedEventArgs args)
+    private void NewProfile_Click(object sender, RoutedEventArgs args) => _ = ChangeProfileAsync(() => _namingState.NewProfile());
+
+    private void DuplicateProfile_Click(object sender, RoutedEventArgs args) => _ = ChangeProfileAsync(() => _namingState.DuplicateProfile());
+
+    private void SavePreset_Click(object sender, RoutedEventArgs args)
     {
-        if (_presetBusy || _closing || _watching || !_namingReady || !_namingValid) return;
+        if (!_namingValid) return;
+        _ = ChangeProfileAsync(() => _namingState.UpdateSelected(PresetName.Text, RuleFormula.Text));
+    }
+
+    private async Task ChangeProfileAsync(Func<NamingState> change)
+    {
+        if (_presetBusy || _closing || _watching || _starting || !_namingReady) return;
         _presetBusy = true;
         SetControls();
         var generation = _monitor.History.Generation;
         try
         {
-            var name = PresetName.Text.Trim();
-            if (name.Length == 0 || name.Any(c => c < 32)) throw new ArgumentException("Enter a preset name without control characters.");
-            var existing = _namingState.Presets.FirstOrDefault(p => p.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
-            if (existing is not null && !await ConfirmPresetAsync("Update preset?", $"Replace the saved formula in '{existing.Name}'?", "Update")) return;
-            if (_closing) return;
-            var preset = new NamingPreset(existing?.Id ?? Guid.NewGuid().ToString("N"), name, RuleFormula.Text);
-            var presets = _namingState.Presets.Where(p => p.Id != preset.Id).Append(preset).ToArray();
-            var state = new NamingState(preset.Formula, preset.Id, presets);
+            var state = change();
             await SaveNamingAsync(state);
             if (!_closing) ApplyNamingState(state);
         }
-        catch (Exception exception) { ShowResult("Could not save preset", exception.Message, InfoBarSeverity.Error, generation); }
+        catch (Exception exception) { ShowResult("Could not change profile", exception.Message, InfoBarSeverity.Error, generation); }
         finally { _presetBusy = false; if (!_closing) SetControls(); }
     }
 
     private async void DeletePreset_Click(object sender, RoutedEventArgs args)
     {
-        if (_presetBusy || _closing || _watching || !_namingReady ||
-            PresetPicker.SelectedItem is not NamingPreset preset || preset.Id.Length == 0) return;
+        if (_presetBusy || _closing || _watching || _starting || !_namingReady ||
+            PresetPicker.SelectedItem is not NamingPreset preset) return;
         _presetBusy = true;
         SetControls();
         var generation = _monitor.History.Generation;
         try
         {
-            if (!await ConfirmPresetAsync("Delete preset?", $"Delete '{preset.Name}'? Saved images will be kept. The default filename rule will be selected.", "Delete") || _closing) return;
-            var state = new NamingState(FilenameRule.DefaultFormula, "", _namingState.Presets.Where(p => p.Id != preset.Id).ToArray());
+            if (!await ConfirmPresetAsync("Delete profile?", $"Delete '{preset.Name}'? Saved images will be kept.", "Delete") || _closing) return;
+            var state = _namingState.DeleteSelected();
             await SaveNamingAsync(state);
             if (!_closing) ApplyNamingState(state);
         }
@@ -306,6 +314,7 @@ public sealed partial class MainWindow : Window
     private void SetControls()
     {
         var editable = _folderReady && _namingReady && !_watching && !_starting && !_presetBusy;
+        var hasProfile = PresetPicker.SelectedItem is NamingPreset;
         StartButton.IsEnabled = editable && _namingValid;
         StopButton.IsEnabled = _watching;
         FolderPath.IsEnabled = editable;
@@ -313,10 +322,12 @@ public sealed partial class MainWindow : Window
         FormatPicker.IsEnabled = editable;
         JpegQuality.IsEnabled = editable;
         PresetPicker.IsEnabled = editable;
-        RuleFormula.IsEnabled = editable;
-        PresetName.IsEnabled = editable;
-        SavePresetButton.IsEnabled = editable && _namingValid;
-        DeletePresetButton.IsEnabled = editable && PresetPicker.SelectedItem is NamingPreset { Id.Length: > 0 };
+        RuleFormula.IsEnabled = editable && hasProfile;
+        PresetName.IsEnabled = editable && hasProfile;
+        NewProfileButton.IsEnabled = editable;
+        DuplicateProfileButton.IsEnabled = editable && hasProfile;
+        SavePresetButton.IsEnabled = editable && hasProfile && _namingValid;
+        DeletePresetButton.IsEnabled = editable && hasProfile;
     }
 
     private void Format_SelectionChanged(object sender, SelectionChangedEventArgs args)
@@ -486,7 +497,7 @@ public sealed partial class MainWindow : Window
         {
             if (_folderReady && !_watching && !_starting) await UpdateFolderAsync(FolderPath.Text);
             if (_folderUpdate is not null) await _folderUpdate;
-            if (_namingReady && !_watching && !_starting && !_presetBusy && _namingValid) await SaveNamingAsync(CurrentNamingState());
+            if (_namingReady && !_watching && !_starting && !_presetBusy && (_namingValid || _namingState.Selected is null)) await SaveNamingAsync(CurrentNamingState());
             if (_namingUpdate is not null) await _namingUpdate;
             await _monitor.DisposeAsync();
         }
