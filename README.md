@@ -123,25 +123,38 @@ formula, timestamp and index through Stop, preset changes and later monitoring
 runs. Viewing examples never advances actual counters or creates/reserves files.
 Search/replace, regex renaming and EXIF/XMP variables are not supported.
 
-To create a preset, enter a **Preset name** and choose **Save Preset**. Choose a
-saved preset to restore its formula. Edit the formula and save with the same name
-to update it after confirmation; names are matched without case sensitivity.
-Cancel keeps the saved formula, while the edited formula remains in the field.
-Saving under a different name creates another preset. **Delete Preset** confirms
-the operation, removes that preset and selects **Default (built-in)**; the built-in
-rule cannot be deleted. Preset deletion never deletes images or changes the clipboard
-or pending saves. Controls are disabled while monitoring; Stop to edit them.
+Use **New Profile** to create a profile from the default filename formula, or
+**Duplicate Profile** to copy the selected profile's saved formula into a new
+profile with its own ID. Select a profile to restore its saved formula. Edit
+**Profile name** and the formula, then choose **Save Preset**: it always updates
+that selected profile, including a renamed profile, without an update prompt.
+Changing the name never creates a profile. Names must be unique without case
+sensitivity; a conflicting name shows an error and never replaces another profile.
+New and duplicate profiles receive an available name automatically.
 
-Presets are saved immediately when added, updated or deleted. Selecting a preset
-remembers the selection and formula. The current valid formula is also remembered
-on Start and normal close, even if its edits have not been saved into a named
-preset. The saved preset itself changes only through **Save Preset**. `config.ini`
+On a fresh start, **Default** is an ordinary editable, deletable profile; there
+is no protected built-in entry. **Delete Profile** asks for confirmation and
+selects another remaining profile. Deleting the last profile leaves an empty
+collection, which stays empty after restart. Choose **New Profile** to continue;
+Start, editing, saving, duplication and deletion require a selected profile.
+Deleting a profile never deletes images or changes the clipboard or pending saves.
+Controls are disabled while monitoring; Stop to edit them.
+
+Profiles are saved immediately when created, duplicated, updated or deleted.
+Selecting a profile remembers the selection and formula. The current valid formula
+is also remembered on Start and normal close, even if its edits have not been
+saved into the selected profile. **Save Preset** is the explicit update action;
+Duplicate copies the saved formula, not unsaved editor changes. `config.ini`
 stores `[Naming]` entries `Formula` and `SelectedPreset`, and `[NamingPresets]`
 entries `Preset.<id>` containing JSON-encoded ID/name/formula records so Unicode,
-quotes and INI punctuation round-trip safely. The file is still optional; no user
-configuration is bundled in the artifact. Malformed preset data is preserved with
-a warning and a usable default. Failed configuration writes leave changes available
-only for the current session, with a warning; they are not reported as durable.
+quotes and INI punctuation round-trip safely. A persisted empty selection with no
+profiles stays empty; a fresh configuration starts with an ordinary Default profile.
+The file is still optional; no user configuration is bundled in the artifact.
+Migration from earlier snapshot settings is not part of this change. Malformed
+profile data is preserved with a warning and a usable default. Failed writes leave
+changes available
+only for the current session,
+with a warning; they are not reported as durable.
 Folder and preset writes share serialized atomic updates, retaining unrelated INI
 entries/comments and the existing save-folder setting.
 
@@ -283,8 +296,9 @@ variables, preview isolation, invalid Windows names, frozen capture metadata,
 suffix gaps and occupied directories, concurrent non-overwriting moves, persistent
 preset changes, and concurrent folder/preset configuration writes. Real Windows
 encoding checks repeated names in all formats, complete output images and temporary
-cleanup. UI Automation exercises preset creation/reuse, update/delete confirmations
-and cancellation, restart restoration, formula validation, locked monitoring controls,
+cleanup. UI Automation exercises explicit New/Duplicate, stable-ID updates and renaming
+without prompts, conflicting-name rejection, deletion/cancellation, empty collections,
+restart restoration, formula validation, locked monitoring controls,
 counter behavior across Clear/Start and preserved files/settings.
 The artifact is uploaded
 only after these checks pass. CI then downloads that artifact and compares
