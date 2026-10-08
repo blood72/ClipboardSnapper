@@ -82,7 +82,7 @@ public sealed record LanguageCatalog(IReadOnlyList<LanguageOption> Languages, IR
 public sealed class UiText : INotifyPropertyChanged
 {
     internal static IReadOnlyDictionary<string, string> EnglishStrings { get; } = ReadEnglish();
-    public LanguageCatalog Catalog { get; private set; };
+    public LanguageCatalog Catalog { get; private set; }
     public LanguageOption Language { get; private set; }
     public event PropertyChangedEventHandler? PropertyChanged;
     public event EventHandler? LanguageChanged;
