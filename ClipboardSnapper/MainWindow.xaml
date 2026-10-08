@@ -43,7 +43,7 @@
                     </StackPanel>
                 </Grid>
                 <StackPanel Spacing="8">
-                    <ComboBox x:Name="LanguagePicker" Header="{Binding [Language], Source={StaticResource UiText}}" DisplayMemberPath="Name" HorizontalAlignment="Stretch" SelectionChanged="Language_SelectionChanged" AutomationProperties.AutomationId="LanguagePicker" />
+                    <ComboBox x:Name="LanguagePicker" Header="{Binding [Language], Source={StaticResource UiText}}" DisplayMemberPath="Name" HorizontalAlignment="Stretch" SelectionChanged="Language_SelectionChanged" AutomationProperties.AutomationId="LanguagePicker" / AutomationProperties.Name="{Binding [Language], Source={StaticResource UiText}}">
                     <Button x:Name="ReloadLanguagesButton" Content="{Binding [ReloadLanguages], Source={StaticResource UiText}}" Click="ReloadLanguages_Click" AutomationProperties.AutomationId="ReloadLanguagesButton" />
                     <TextBlock Text="{Binding [LanguageHelp], Source={StaticResource UiText}}" TextWrapping="Wrap" Opacity="0.7" />
                 </StackPanel>
@@ -76,22 +76,22 @@
                         </StackPanel>
                     </Grid>
                     <TextBlock Text="{Binding [FolderHelp], Source={StaticResource UiText}}" TextWrapping="Wrap" Opacity="0.7" />
-                    <Expander x:Name="NamingExpander" Header="{Binding [NamingTitle], Source={StaticResource UiText}}" HorizontalAlignment="Stretch" AutomationProperties.AutomationId="NamingExpander">
+                    <Expander x:Name="NamingExpander" Header="{Binding [NamingTitle], Source={StaticResource UiText}}" HorizontalAlignment="Stretch" AutomationProperties.AutomationId="NamingExpander" AutomationProperties.Name="{Binding [NamingTitle], Source={StaticResource UiText}}">
                         <StackPanel x:Name="NamingControls" Spacing="8">
-                            <ComboBox x:Name="PresetPicker" Header="{Binding [Profile], Source={StaticResource UiText}}" DisplayMemberPath="Name" HorizontalAlignment="Stretch" SelectionChanged="Preset_SelectionChanged" AutomationProperties.AutomationId="PresetPicker" />
+                            <ComboBox x:Name="PresetPicker" Header="{Binding [Profile], Source={StaticResource UiText}}" DisplayMemberPath="Name" HorizontalAlignment="Stretch" SelectionChanged="Preset_SelectionChanged" AutomationProperties.AutomationId="PresetPicker" / AutomationProperties.Name="{Binding [Profile], Source={StaticResource UiText}}">
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <Button x:Name="NewProfileButton" Content="{Binding [NewProfile], Source={StaticResource UiText}}" Click="NewProfile_Click" AutomationProperties.AutomationId="NewProfileButton" />
                                 <Button x:Name="DuplicateProfileButton" Content="{Binding [DuplicateProfile], Source={StaticResource UiText}}" Click="DuplicateProfile_Click" AutomationProperties.AutomationId="DuplicateProfileButton" />
                             </StackPanel>
-                            <TextBox x:Name="RuleFormula" Header="{Binding [Formula], Source={StaticResource UiText}}" TextChanged="RuleFormula_TextChanged" AutomationProperties.AutomationId="RuleFormula" />
+                            <TextBox x:Name="RuleFormula" Header="{Binding [Formula], Source={StaticResource UiText}}" TextChanged="RuleFormula_TextChanged" AutomationProperties.AutomationId="RuleFormula" / AutomationProperties.Name="{Binding [Formula], Source={StaticResource UiText}}">
                             <TextBlock x:Name="RulePreview" TextWrapping="Wrap" AutomationProperties.AutomationId="RulePreview" />
-                            <TextBox x:Name="PresetName" Header="{Binding [ProfileName], Source={StaticResource UiText}}" PlaceholderText="{Binding [NamePlaceholder], Source={StaticResource UiText}}" AutomationProperties.AutomationId="PresetName" />
+                            <TextBox x:Name="PresetName" Header="{Binding [ProfileName], Source={StaticResource UiText}}" PlaceholderText="{Binding [NamePlaceholder], Source={StaticResource UiText}}" AutomationProperties.AutomationId="PresetName" / AutomationProperties.Name="{Binding [ProfileName], Source={StaticResource UiText}}">
                             <TextBlock Text="{Binding [ProfileHelp], Source={StaticResource UiText}}" TextWrapping="Wrap" Opacity="0.7" />
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <Button x:Name="SavePresetButton" Content="{Binding [SavePreset], Source={StaticResource UiText}}" Click="SavePreset_Click" AutomationProperties.AutomationId="SavePresetButton" />
                                 <Button x:Name="DeletePresetButton" Content="{Binding [DeleteProfile], Source={StaticResource UiText}}" Click="DeletePreset_Click" AutomationProperties.AutomationId="DeletePresetButton" />
                             </StackPanel>
-                            <Expander Header="{Binding [FormulaVariables], Source={StaticResource UiText}}" HorizontalAlignment="Stretch">
+                            <Expander Header="{Binding [FormulaVariables], Source={StaticResource UiText}}" HorizontalAlignment="Stretch" AutomationProperties.Name="{Binding [FormulaVariables], Source={StaticResource UiText}}">
                                 <TextBlock Text="{Binding [FormulaHelp], Source={StaticResource UiText}}" TextWrapping="Wrap" />
                             </Expander>
                         </StackPanel>

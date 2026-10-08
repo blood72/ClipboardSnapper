@@ -161,7 +161,12 @@ function Select-Option([string]$Id, [string]$Name) {
     $choice = Find-Name $script:root $Name
     ([System.Windows.Automation.SelectionItemPattern]$choice.GetCurrentPattern(
         [System.Windows.Automation.SelectionItemPattern]::Pattern)).Select()
-    $expand.Collapse()
+    # A live language change can replace automation peers and close the popup itself.
+    Wait-For { $null -ne (Find-Control $Id) -and (Find-Control $Id).Current.IsEnabled } "ready $Id after selection"
+    $combo = Find-Control $Id
+    $expand = [System.Windows.Automation.ExpandCollapsePattern]$combo.GetCurrentPattern(
+        [System.Windows.Automation.ExpandCollapsePattern]::Pattern)
+    if ($expand.Current.ExpandCollapseState -eq [System.Windows.Automation.ExpandCollapseState]::Expanded) { $expand.Collapse() }
     $selection = [System.Windows.Automation.SelectionPattern]$combo.GetCurrentPattern(
         [System.Windows.Automation.SelectionPattern]::Pattern)
     Wait-For { $selection.Current.GetSelection()[0].Current.Name -eq $Name } "$Name selection"
