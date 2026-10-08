@@ -142,6 +142,9 @@ public sealed partial class MainWindow : Window
         var generation = _monitor.History.Generation;
         try
         {
+            // Finish the selection callback before relabeling/disabling its automation peers.
+            await Task.Yield();
+            if (_closing) return;
             _text.Select(language.Code);
             SetControls();
             var saved = await SaveLanguageAsync(language.Code);

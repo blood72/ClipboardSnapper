@@ -683,6 +683,12 @@ try {
     $trace = $_.ScriptStackTrace -replace '\r?\n', ' | '
     $message = $_.Exception.Message -replace '\r?\n', ' | '
     Write-Output "::error::Feature failure before cleanup: $message / $trace"
+    $process.Refresh()
+    Write-Output "::error::Application exited=$($process.HasExited)"
+    if (-not $process.HasExited -and $null -ne $root) {
+        $controls = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
+        Write-Output (('::error::UI at failure: ') + (($controls | Select-Object -First 120 | ForEach-Object { "$($_.Current.Name) / $($_.Current.AutomationId) / enabled=$($_.Current.IsEnabled)" }) -join ' | '))
+    }
     throw
 } finally {
     if ($null -ne $process -and -not $process.HasExited) {
