@@ -522,7 +522,7 @@ try {
     }
     Set-Folder 'relative-images'
     (Find-Control 'FormatPicker').SetFocus()
-    Wait-For { (Find-Control 'SettingsMessage').Current.Name.Contains('저장 폴더 설정') -or $null -ne (Find-Name (Find-Control 'SettingsMessage') '저장 폴더 설정') } 'localized folder warning'
+    Wait-For { $null -ne (Find-Name (Find-Control 'SettingsMessage') '저장 폴더 설정') } 'rendered localized folder warning'
     Wait-For { (Folder-Value) -eq $defaultFolder } 'Korean folder fallback'
     Commit-Folder $testFolder
     $koreanBlocked = Join-Path $testFolder 'blocked-korean'
