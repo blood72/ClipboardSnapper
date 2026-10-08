@@ -34,60 +34,65 @@
                     <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                     <StackPanel Spacing="4">
                         <TextBlock Text="ClipboardSnapper" Style="{ThemeResource TitleTextBlockStyle}" />
-                        <TextBlock x:Name="MonitoringStatus" Text="Ready" FontSize="18" FontWeight="SemiBold" AutomationProperties.LiveSetting="Polite" AutomationProperties.AutomationId="MonitoringStatus" />
-                        <TextBlock x:Name="MonitoringHelp" Text="Choose a save folder, then press Start." TextWrapping="Wrap" />
+                        <TextBlock x:Name="MonitoringStatus" Text="" FontSize="18" FontWeight="SemiBold" AutomationProperties.LiveSetting="Polite" AutomationProperties.AutomationId="MonitoringStatus" />
+                        <TextBlock x:Name="MonitoringHelp" Text="" TextWrapping="Wrap" />
                     </StackPanel>
                     <StackPanel x:Name="MonitoringActions" Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                        <Button x:Name="StartButton" Content="Start" Click="Start_Click" Style="{ThemeResource AccentButtonStyle}" AutomationProperties.AutomationId="StartButton" />
-                        <Button x:Name="StopButton" Content="Stop" Click="Stop_Click" IsEnabled="False" AutomationProperties.AutomationId="StopButton" />
+                        <Button x:Name="StartButton" Content="{Binding [Start], Source={StaticResource UiText}}" Click="Start_Click" Style="{ThemeResource AccentButtonStyle}" AutomationProperties.AutomationId="StartButton" />
+                        <Button x:Name="StopButton" Content="{Binding [Stop], Source={StaticResource UiText}}" Click="Stop_Click" IsEnabled="False" AutomationProperties.AutomationId="StopButton" />
                     </StackPanel>
                 </Grid>
+                <StackPanel Spacing="8">
+                    <ComboBox x:Name="LanguagePicker" Header="{Binding [Language], Source={StaticResource UiText}}" DisplayMemberPath="Name" HorizontalAlignment="Stretch" SelectionChanged="Language_SelectionChanged" AutomationProperties.AutomationId="LanguagePicker" />
+                    <Button x:Name="ReloadLanguagesButton" Content="{Binding [ReloadLanguages], Source={StaticResource UiText}}" Click="ReloadLanguages_Click" AutomationProperties.AutomationId="ReloadLanguagesButton" />
+                    <TextBlock Text="{Binding [LanguageHelp], Source={StaticResource UiText}}" TextWrapping="Wrap" Opacity="0.7" />
+                </StackPanel>
                 <StackPanel Spacing="12">
-                    <TextBlock Text="Save settings" Style="{ThemeResource SubtitleTextBlockStyle}" />
+                    <TextBlock Text="{Binding [SaveSettings], Source={StaticResource UiText}}" Style="{ThemeResource SubtitleTextBlockStyle}" />
                     <Grid ColumnSpacing="12" RowSpacing="12">
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition x:Name="FormatColumn" Width="180" /></Grid.ColumnDefinitions>
                         <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                         <StackPanel x:Name="FolderInput" Spacing="6">
-                            <TextBlock Text="Save folder" />
-                            <TextBox x:Name="FolderPath" LostFocus="FolderPath_LostFocus" AutomationProperties.Name="Save folder" AutomationProperties.AutomationId="FolderPath" />
+                            <TextBlock Text="{Binding [SaveFolder], Source={StaticResource UiText}}" />
+                            <TextBox x:Name="FolderPath" LostFocus="FolderPath_LostFocus" AutomationProperties.Name="{Binding [SaveFolder], Source={StaticResource UiText}}" AutomationProperties.AutomationId="FolderPath" />
                         </StackPanel>
                         <StackPanel x:Name="FolderActions" Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Bottom">
-                            <Button x:Name="BrowseButton" Content="Browse" Click="Browse_Click" />
-                            <Button Content="Open Folder" Click="OpenFolder_Click" />
+                            <Button AutomationProperties.AutomationId="BrowseButton" x:Name="BrowseButton" Content="{Binding [Browse], Source={StaticResource UiText}}" Click="Browse_Click" />
+                            <Button AutomationProperties.AutomationId="OpenFolderButton" Content="{Binding [OpenFolder], Source={StaticResource UiText}}" Click="OpenFolder_Click" />
                         </StackPanel>
                         <StackPanel x:Name="FormatInput" Grid.Column="2" Spacing="6">
-                            <TextBlock Text="Image format" />
-                            <ComboBox x:Name="FormatPicker" SelectedIndex="0" SelectionChanged="Format_SelectionChanged" HorizontalAlignment="Stretch" AutomationProperties.Name="Image format" AutomationProperties.AutomationId="FormatPicker">
+                            <TextBlock Text="{Binding [ImageFormat], Source={StaticResource UiText}}" />
+                            <ComboBox x:Name="FormatPicker" SelectedIndex="0" SelectionChanged="Format_SelectionChanged" HorizontalAlignment="Stretch" AutomationProperties.Name="{Binding [ImageFormat], Source={StaticResource UiText}}" AutomationProperties.AutomationId="FormatPicker">
                                 <ComboBoxItem Content="PNG" /><ComboBoxItem Content="JPEG" /><ComboBoxItem Content="BMP" />
                             </ComboBox>
                             <StackPanel x:Name="JpegQualityPanel" Spacing="4" Visibility="Collapsed">
-                                <TextBlock Text="Quality (1–100)" />
+                                <TextBlock Text="{Binding [Quality], Source={StaticResource UiText}}" />
                                 <Grid ColumnSpacing="8">
                                     <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                    <Slider x:Name="JpegQuality" Minimum="1" Maximum="100" Value="90" StepFrequency="1" AutomationProperties.Name="JPEG quality" AutomationProperties.AutomationId="JpegQuality" />
+                                    <Slider x:Name="JpegQuality" Minimum="1" Maximum="100" Value="90" StepFrequency="1" AutomationProperties.Name="{Binding [JpegQuality], Source={StaticResource UiText}}" AutomationProperties.AutomationId="JpegQuality" />
                                     <TextBlock Grid.Column="1" Text="{Binding Value, ElementName=JpegQuality}" VerticalAlignment="Center" />
                                 </Grid>
                             </StackPanel>
                         </StackPanel>
                     </Grid>
-                    <TextBlock Text="The folder is remembered after Browse or leaving the path field. Save options apply when you press Start. Stop monitoring to change them." TextWrapping="Wrap" Opacity="0.7" />
-                    <Expander x:Name="NamingExpander" Header="Filename rules and presets" HorizontalAlignment="Stretch" AutomationProperties.AutomationId="NamingExpander">
+                    <TextBlock Text="{Binding [FolderHelp], Source={StaticResource UiText}}" TextWrapping="Wrap" Opacity="0.7" />
+                    <Expander x:Name="NamingExpander" Header="{Binding [NamingTitle], Source={StaticResource UiText}}" HorizontalAlignment="Stretch" AutomationProperties.AutomationId="NamingExpander">
                         <StackPanel x:Name="NamingControls" Spacing="8">
-                            <ComboBox x:Name="PresetPicker" Header="Profile" DisplayMemberPath="Name" HorizontalAlignment="Stretch" SelectionChanged="Preset_SelectionChanged" AutomationProperties.AutomationId="PresetPicker" />
+                            <ComboBox x:Name="PresetPicker" Header="{Binding [Profile], Source={StaticResource UiText}}" DisplayMemberPath="Name" HorizontalAlignment="Stretch" SelectionChanged="Preset_SelectionChanged" AutomationProperties.AutomationId="PresetPicker" />
                             <StackPanel Orientation="Horizontal" Spacing="8">
-                                <Button x:Name="NewProfileButton" Content="New Profile" Click="NewProfile_Click" AutomationProperties.AutomationId="NewProfileButton" />
-                                <Button x:Name="DuplicateProfileButton" Content="Duplicate Profile" Click="DuplicateProfile_Click" AutomationProperties.AutomationId="DuplicateProfileButton" />
+                                <Button x:Name="NewProfileButton" Content="{Binding [NewProfile], Source={StaticResource UiText}}" Click="NewProfile_Click" AutomationProperties.AutomationId="NewProfileButton" />
+                                <Button x:Name="DuplicateProfileButton" Content="{Binding [DuplicateProfile], Source={StaticResource UiText}}" Click="DuplicateProfile_Click" AutomationProperties.AutomationId="DuplicateProfileButton" />
                             </StackPanel>
-                            <TextBox x:Name="RuleFormula" Header="Formula" TextChanged="RuleFormula_TextChanged" AutomationProperties.AutomationId="RuleFormula" />
+                            <TextBox x:Name="RuleFormula" Header="{Binding [Formula], Source={StaticResource UiText}}" TextChanged="RuleFormula_TextChanged" AutomationProperties.AutomationId="RuleFormula" />
                             <TextBlock x:Name="RulePreview" TextWrapping="Wrap" AutomationProperties.AutomationId="RulePreview" />
-                            <TextBox x:Name="PresetName" Header="Profile name" PlaceholderText="Name your profile" AutomationProperties.AutomationId="PresetName" />
-                            <TextBlock Text="New Profile starts with the default rule. Duplicate Profile copies the selected saved profile. Save Preset updates this profile, including its name." TextWrapping="Wrap" Opacity="0.7" />
+                            <TextBox x:Name="PresetName" Header="{Binding [ProfileName], Source={StaticResource UiText}}" PlaceholderText="{Binding [NamePlaceholder], Source={StaticResource UiText}}" AutomationProperties.AutomationId="PresetName" />
+                            <TextBlock Text="{Binding [ProfileHelp], Source={StaticResource UiText}}" TextWrapping="Wrap" Opacity="0.7" />
                             <StackPanel Orientation="Horizontal" Spacing="8">
-                                <Button x:Name="SavePresetButton" Content="Save Preset" Click="SavePreset_Click" AutomationProperties.AutomationId="SavePresetButton" />
-                                <Button x:Name="DeletePresetButton" Content="Delete Profile" Click="DeletePreset_Click" AutomationProperties.AutomationId="DeletePresetButton" />
+                                <Button x:Name="SavePresetButton" Content="{Binding [SavePreset], Source={StaticResource UiText}}" Click="SavePreset_Click" AutomationProperties.AutomationId="SavePresetButton" />
+                                <Button x:Name="DeletePresetButton" Content="{Binding [DeleteProfile], Source={StaticResource UiText}}" Click="DeletePreset_Click" AutomationProperties.AutomationId="DeletePresetButton" />
                             </StackPanel>
-                            <Expander Header="Formula variables" HorizontalAlignment="Stretch">
-                                <TextBlock Text="PowerRename-style variables: $YYYY $YY $Y, $MMMM $MMM $MM $M, $DDDD $DDD $DD $D, $hh $h $mm $m $ss $s $fff $ff $f.&#xA;Numbering: ${} or ${start=1;padding=4;increment=1}. Numbers restart with each Start; Clear History does not reset them.&#xA;Random values: ${rstringalnum=8}, ${rstringalpha=8}, ${rstringdigit=8}, ${ruuidv4}. Use $$ for a literal $.&#xA;Dates use capture time. The image extension is added automatically. Existing files are kept; collisions use (2), (3), etc." TextWrapping="Wrap" />
+                            <Expander Header="{Binding [FormulaVariables], Source={StaticResource UiText}}" HorizontalAlignment="Stretch">
+                                <TextBlock Text="{Binding [FormulaHelp], Source={StaticResource UiText}}" TextWrapping="Wrap" />
                             </Expander>
                         </StackPanel>
                     </Expander>
@@ -95,39 +100,39 @@
                 <InfoBar x:Name="SettingsMessage" IsOpen="False" IsClosable="True" AutomationProperties.AutomationId="SettingsMessage" />
                 <InfoBar x:Name="ResultMessage" IsOpen="False" IsClosable="True" AutomationProperties.AutomationId="ResultMessage" />
                 <StackPanel Spacing="8">
-                    <TextBlock Text="Latest saved image" Style="{ThemeResource SubtitleTextBlockStyle}" />
+                    <TextBlock Text="{Binding [LatestImage], Source={StaticResource UiText}}" Style="{ThemeResource SubtitleTextBlockStyle}" />
                     <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="16">
                         <Grid MinHeight="180">
                             <StackPanel x:Name="EmptyPreview" Spacing="8" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                <TextBlock Text="No images saved yet" FontSize="20" FontWeight="SemiBold" TextWrapping="Wrap" />
-                                <TextBlock Text="Press Start, then copy an image to the clipboard.&#x0a;Your latest saved image will appear here." TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding [NoImages], Source={StaticResource UiText}}" FontSize="20" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding [EmptyPreviewHelp], Source={StaticResource UiText}}" TextWrapping="Wrap" />
                             </StackPanel>
-                            <Image x:Name="PreviewImage" Stretch="Uniform" MaxHeight="320" Visibility="Collapsed" AutomationProperties.Name="Latest saved image" AutomationProperties.AutomationId="PreviewImage" />
+                            <Image x:Name="PreviewImage" Stretch="Uniform" MaxHeight="320" Visibility="Collapsed" AutomationProperties.Name="{Binding [LatestImage], Source={StaticResource UiText}}" AutomationProperties.AutomationId="PreviewImage" />
                         </Grid>
                     </Border>
-                    <TextBlock x:Name="PreviewCaption" Text="The preview updates after an image has been saved." TextWrapping="Wrap" Opacity="0.7" AutomationProperties.AutomationId="PreviewCaption" />
+                    <TextBlock x:Name="PreviewCaption" Text="" TextWrapping="Wrap" Opacity="0.7" AutomationProperties.AutomationId="PreviewCaption" />
                 </StackPanel>
                 <StackPanel Spacing="8">
                     <Grid ColumnSpacing="12">
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                        <TextBlock Text="Recent files" Style="{ThemeResource SubtitleTextBlockStyle}" VerticalAlignment="Center" />
-                        <Button Grid.Column="1" Content="Clear History" Click="ClearHistory_Click" AutomationProperties.AutomationId="ClearHistoryButton"
-                            ToolTipService.ToolTip="Clears only the current session's list and preview. Saved files are kept. Monitoring and queued saves continue; the Windows clipboard is unchanged."
-                            AutomationProperties.HelpText="Clears only the current session's list and preview. Saved files are kept. Monitoring and queued saves continue; the Windows clipboard is unchanged." />
+                        <TextBlock Text="{Binding [RecentFiles], Source={StaticResource UiText}}" Style="{ThemeResource SubtitleTextBlockStyle}" VerticalAlignment="Center" />
+                        <Button Grid.Column="1" Content="{Binding [ClearHistory], Source={StaticResource UiText}}" Click="ClearHistory_Click" AutomationProperties.AutomationId="ClearHistoryButton"
+                            ToolTipService.ToolTip="{Binding [ClearHelp], Source={StaticResource UiText}}"
+                            AutomationProperties.HelpText="{Binding [ClearHelp], Source={StaticResource UiText}}" />
                     </Grid>
-                    <TextBlock x:Name="EmptyHistory" Text="Saved images and failures from this session will be listed here." TextWrapping="Wrap" />
-                    <ListView x:Name="HistoryList" MaxHeight="260" SelectionMode="None" IsItemClickEnabled="False" HorizontalContentAlignment="Stretch" AutomationProperties.Name="Recent saved files" AutomationProperties.AutomationId="HistoryList">
+                    <TextBlock x:Name="EmptyHistory" Text="{Binding [EmptyHistory], Source={StaticResource UiText}}" TextWrapping="Wrap" />
+                    <ListView x:Name="HistoryList" MaxHeight="260" SelectionMode="None" IsItemClickEnabled="False" HorizontalContentAlignment="Stretch" AutomationProperties.Name="{Binding [RecentSavedFiles], Source={StaticResource UiText}}" AutomationProperties.AutomationId="HistoryList">
                         <ListView.ItemTemplate>
                             <DataTemplate x:DataType="local:HistoryItem">
                                 <Grid Padding="0,8" RowSpacing="6">
                                     <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                                    <TextBlock Text="{x:Bind Name}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                    <TextBlock Text="{x:Bind Name, Mode=OneWay}" FontWeight="SemiBold" TextWrapping="Wrap" />
                                     <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="16">
                                         <TextBlock Text="{x:Bind Time}" />
-                                        <TextBlock Text="{x:Bind Status}" Foreground="{x:Bind StatusBrush}" FontWeight="SemiBold" />
-                                        <Button Content="Details" Click="Details_Click" Padding="8,2" />
+                                        <TextBlock Text="{x:Bind Status, Mode=OneWay}" Foreground="{x:Bind StatusBrush}" FontWeight="SemiBold" />
+                                        <Button Content="{Binding [Details], Source={StaticResource UiText}}" Click="Details_Click" Padding="8,2" />
                                     </StackPanel>
-                                    <TextBlock Grid.Row="2" Text="{x:Bind Summary}" TextWrapping="Wrap" Opacity="0.75" />
+                                    <TextBlock Grid.Row="2" Text="{x:Bind Summary, Mode=OneWay}" TextWrapping="Wrap" Opacity="0.75" />
                                 </Grid>
                             </DataTemplate>
                         </ListView.ItemTemplate>

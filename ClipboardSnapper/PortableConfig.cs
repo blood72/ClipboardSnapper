@@ -10,7 +10,7 @@ internal sealed class PortableConfig(string path)
     private readonly object _gate = Gates.GetOrAdd(Path.GetFullPath(path), _ => new object());
 
     public static string ExecutableConfigPath => Path.Combine(Path.GetDirectoryName(Environment.ProcessPath)
-        ?? throw new InvalidOperationException("The application executable location is unavailable."), "config.ini");
+        ?? throw UiMessage.InvalidOperation("ExecutableUnavailable"), "config.ini");
 
     public T Read<T>(Func<IniDocument, T> read)
     {
@@ -100,12 +100,12 @@ internal sealed class IniDocument(List<string> lines, string newLine)
             if (line[0] == '[')
             {
                 if (!line.EndsWith(']') || line[1..^1].Trim().Length == 0)
-                    throw new InvalidDataException("config.ini contains an invalid section header.");
+                    throw UiMessage.InvalidData("InvalidIniSection");
                 section = line[1..^1].Trim();
                 continue;
             }
             var equals = line.IndexOf('=');
-            if (equals <= 0) throw new InvalidDataException("config.ini contains an invalid entry.");
+            if (equals <= 0) throw UiMessage.InvalidData("InvalidIniEntry");
             yield return (i, section, line[..equals].Trim(), line[(equals + 1)..].Trim());
         }
     }
@@ -115,7 +115,7 @@ internal sealed class IniDocument(List<string> lines, string newLine)
         var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var entry in Entries().Where(e => e.Section.Equals(section, StringComparison.OrdinalIgnoreCase)))
             if (!result.TryAdd(entry.Key, entry.Value))
-                throw new InvalidDataException($"config.ini contains duplicate {entry.Key} entries in [{section}].");
+                throw UiMessage.InvalidData("DuplicateIniSectionEntry", entry.Key, section);
         return result;
     }
 
@@ -123,13 +123,13 @@ internal sealed class IniDocument(List<string> lines, string newLine)
     {
         var entries = Entries().Where(e => e.Section.Equals(section, StringComparison.OrdinalIgnoreCase) &&
             e.Key.Equals(key, StringComparison.OrdinalIgnoreCase)).ToArray();
-        if (entries.Length > 1) throw new InvalidDataException($"config.ini contains duplicate {key} entries.");
+        if (entries.Length > 1) throw UiMessage.InvalidData("DuplicateIniEntry", key);
         return entries.FirstOrDefault().Value;
     }
 
     public void Set(string section, string key, string value)
     {
-        if (value.IndexOfAny(['\r', '\n', '\0']) >= 0) throw new ArgumentException("An INI value cannot contain line breaks.");
+        if (value.IndexOfAny(['\r', '\n', '\0']) >= 0) throw UiMessage.Argument("InvalidIniValue");
         _ = Get(section, key);
         var entry = Entries().Where(e => e.Section.Equals(section, StringComparison.OrdinalIgnoreCase) &&
             e.Key.Equals(key, StringComparison.OrdinalIgnoreCase)).ToArray();

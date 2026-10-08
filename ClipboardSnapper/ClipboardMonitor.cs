@@ -78,13 +78,13 @@ public sealed class ClipboardMonitor : IAsyncDisposable
             if (!content.Contains(StandardDataFormats.Bitmap)) return;
             var captureIndex = _captureIndex++;
             if (_reading >= 2)
-                throw new IOException("Clipboard images are arriving too quickly. Copy the image again.");
+                throw UiMessage.Io("ClipboardTooFast");
             _reading++;
             entered = true;
             var bitmap = await content.GetBitmapAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10));
             using var source = await bitmap.OpenReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10));
             if (source.Size > MaximumBytes)
-                throw new InvalidDataException("The clipboard image exceeds the 128 MB limit.");
+                throw UiMessage.InvalidData("ClipboardTooLarge");
             using var stream = source.AsStreamForRead();
             using var bytes = new MemoryStream();
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
@@ -93,17 +93,17 @@ public sealed class ClipboardMonitor : IAsyncDisposable
             while ((count = await stream.ReadAsync(buffer, timeout.Token)) != 0)
             {
                 if (bytes.Length + count > MaximumBytes)
-                    throw new InvalidDataException("The clipboard image exceeds the 128 MB limit.");
+                    throw UiMessage.InvalidData("ClipboardTooLarge");
                 bytes.Write(buffer, 0, count);
             }
             if (!_images.Writer.TryWrite(new CapturedImage(bytes.ToArray(), options, generation)
                 { AcceptedAt = acceptedAt, CaptureIndex = captureIndex }))
-                throw new IOException("Image saving is busy. Copy the image again after a moment.");
+                throw UiMessage.Io("SavingBusy");
         }
         catch (Exception exception)
         {
             PublishResult(new SaveResult(options.Folder, DateTimeOffset.Now, false,
-                $"{exception.GetType().Name}: {exception.Message}", Generation: generation));
+                $"{exception.GetType().Name}: {exception.Message}", Generation: generation) { ErrorMessage = UiMessage.FromException(exception) });
         }
         finally { if (entered) _reading--; }
     }
@@ -132,7 +132,7 @@ public sealed class ClipboardMonitor : IAsyncDisposable
                 new DispatcherQueueSynchronizationContext(_controller.DispatcherQueue));
             try { await action(); completion.SetResult(); }
             catch (Exception exception) { completion.SetException(exception); }
-        })) completion.SetException(new InvalidOperationException("The clipboard thread is unavailable."));
+        })) completion.SetException(UiMessage.InvalidOperation("ClipboardThreadUnavailable"));
         return completion.Task;
     }
 

@@ -34,7 +34,7 @@ public static class ImageSaver
             var width = decoder.OrientedPixelWidth;
             var height = decoder.OrientedPixelHeight;
             if ((ulong)width * height > 64_000_000)
-                throw new InvalidDataException("The image exceeds the 64 megapixel limit.");
+                throw UiMessage.InvalidData("ImageTooLarge");
             var pixels = (await decoder.GetPixelDataAsync(BitmapPixelFormat.Bgra8,
                 BitmapAlphaMode.Straight, new BitmapTransform(),
                 ExifOrientationMode.RespectExifOrientation, ColorManagementMode.ColorManageToSRgb)).DetachPixelData();
@@ -76,7 +76,7 @@ public static class ImageSaver
         catch (Exception exception)
         {
             return new SaveResult(path, DateTimeOffset.Now, false,
-                $"{exception.GetType().Name}: {exception.Message}", Generation: image.Generation);
+                $"{exception.GetType().Name}: {exception.Message}", Generation: image.Generation) { ErrorMessage = UiMessage.FromException(exception) };
         }
         finally
         {

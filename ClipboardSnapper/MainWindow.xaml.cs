@@ -1,3 +1,5 @@
+using System.ComponentModel;
+using System.Globalization;
 using System.Collections.ObjectModel;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
@@ -14,6 +16,18 @@ namespace ClipboardSnapper;
 
 public sealed partial class MainWindow : Window
 {
+    private readonly UiText _text = (UiText)Application.Current.Resources["UiText"];
+    private readonly LanguagePreferences _languagePreferences = new(PortableConfig.ExecutableConfigPath);
+    private Task<LanguagePreference>? _languageUpdate;
+    private bool _languageReady;
+    private bool _languageBusy;
+    private bool _updatingLanguage;
+    private string _statusKey = "Ready";
+    private string? _settingsTitle;
+    private UiMessage? _settingsNotice;
+    private string? _resultTitle;
+    private UiMessage? _resultNotice;
+    private UiMessage _caption = new("PreviewEmptyCaption");
     private readonly ClipboardMonitor _monitor = new();
     private readonly ObservableCollection<HistoryItem> _history = [];
     private readonly SaveFolderPreferences _preferences = SaveFolderPreferences.ForCurrentProcess();
@@ -44,6 +58,8 @@ public sealed partial class MainWindow : Window
     {
         _namingPreferences = new NamingPreferences(_preferences.ConfigPath);
         InitializeComponent();
+        _text.LanguageChanged += LanguageChanged;
+        LanguageChanged(this, EventArgs.Empty);
         UpdateQualityVisibility();
         WindowPlacement.Apply(AppWindow);
         FolderPath.Text = _preferences.DefaultFolder;
@@ -60,6 +76,11 @@ public sealed partial class MainWindow : Window
 
     private async Task InitializeFolderAsync()
     {
+        var language = await _languagePreferences.LoadAsync();
+        if (_closing) return;
+        var code = _text.Catalog.Resolve(language.Code, CultureInfo.CurrentUICulture.Name);
+        ApplyLanguagePicker(code);
+        _languageReady = true;
         await UpdateFolderAsync(null);
         if (_closing) return;
         _folderReady = true;
@@ -67,8 +88,103 @@ public sealed partial class MainWindow : Window
         if (_closing) return;
         ApplyNamingState(naming.State);
         _namingReady = true;
-        if (naming.Warning is not null) ShowNamingWarning(naming.Warning, _monitor.History.Generation);
+        if (naming.Notice is not null) ShowNamingWarning(naming.Notice, _monitor.History.Generation);
+        var languageNotices = _text.Catalog.Notices.ToList();
+        if (language.Notice is not null) languageNotices.Add(language.Notice);
+        if (language.Code is not null && !language.Code.Equals(code, StringComparison.OrdinalIgnoreCase))
+            languageNotices.Add(new("LanguageUnavailable", language.Code));
+        if (languageNotices.Count > 0) ShowLanguageNotices(languageNotices, _monitor.History.Generation);
         if (!_closing) SetControls();
+    }
+
+    private void ApplyLanguagePicker(string code)
+    {
+        _updatingLanguage = true;
+        try
+        {
+            LanguagePicker.ItemsSource = _text.Catalog.Languages;
+            LanguagePicker.SelectedItem = _text.Catalog.Languages.First(l => l.Code == code);
+            _text.Select(code);
+        }
+        finally { _updatingLanguage = false; }
+    }
+
+    private void LanguageChanged(object? sender, EventArgs args)
+    {
+        RootGrid.Language = _text.Language.Code;
+        MonitoringStatus.Text = _text[_statusKey];
+        MonitoringHelp.Text = _text[_watching ? "MonitoringHelp" : _statusKey == "Stopped" ? "StoppedHelp" : "ReadyHelp"];
+        PreviewCaption.Text = _caption.Render(_text);
+        if (_settingsTitle is not null) SettingsMessage.Title = _text[_settingsTitle];
+        if (_settingsNotice is not null) SettingsMessage.Message = _settingsNotice.Render(_text);
+        if (_resultTitle is not null) ResultMessage.Title = _text[_resultTitle];
+        if (_resultNotice is not null) ResultMessage.Message = _resultNotice.Render(_text);
+        foreach (var item in _history) item.RefreshLanguage();
+        UpdateRulePreview();
+    }
+
+    private Task<LanguagePreference> SaveLanguageAsync(string code)
+    {
+        var previous = _languageUpdate;
+        return _languageUpdate = SaveAsync();
+        async Task<LanguagePreference> SaveAsync()
+        {
+            if (previous is not null) await previous;
+            return await _languagePreferences.SaveAsync(code);
+        }
+    }
+
+    private async void Language_SelectionChanged(object sender, SelectionChangedEventArgs args)
+    {
+        if (_updatingLanguage || !_languageReady || _languageBusy || _closing ||
+            LanguagePicker.SelectedItem is not LanguageOption language) return;
+        _languageBusy = true;
+        var generation = _monitor.History.Generation;
+        try
+        {
+            _text.Select(language.Code);
+            SetControls();
+            var saved = await SaveLanguageAsync(language.Code);
+            if (!_closing && saved.Notice is not null) ShowLanguageNotices([saved.Notice], generation);
+        }
+        finally { _languageBusy = false; if (!_closing) SetControls(); }
+    }
+
+    private async void ReloadLanguages_Click(object sender, RoutedEventArgs args)
+    {
+        if (!_languageReady || _languageBusy || _closing) return;
+        _languageBusy = true;
+        SetControls();
+        var generation = _monitor.History.Generation;
+        try
+        {
+            var previous = _text.Language.Code;
+            var catalog = await Task.Run(() => LanguageCatalog.Load(Path.Combine(AppContext.BaseDirectory, "lang")));
+            if (_closing) return;
+            _text.ReplaceCatalog(catalog);
+            ApplyLanguagePicker(_text.Language.Code);
+            var notices = catalog.Notices.ToList();
+            if (previous != _text.Language.Code)
+            {
+                notices.Add(new("LanguageUnavailable", previous));
+                var saved = await SaveLanguageAsync(_text.Language.Code);
+                if (saved.Notice is not null) notices.Add(saved.Notice);
+            }
+            ShowLanguageNotices(notices, generation);
+        }
+        finally { _languageBusy = false; if (!_closing) SetControls(); }
+    }
+
+    private void ShowLanguageNotices(IReadOnlyList<UiMessage> notices, long generation)
+    {
+        if (!_monitor.History.IsCurrent(generation)) return;
+        _settingsTitle = "LanguageSettings";
+        // Keep structured messages so an existing notice also changes with the selected language.
+        _settingsNotice = new("Raw", new UiMessageList(notices));
+        SettingsMessage.Title = _text[_settingsTitle];
+        SettingsMessage.Message = _settingsNotice.Render(_text);
+        SettingsMessage.Severity = InfoBarSeverity.Warning;
+        SettingsMessage.IsOpen = notices.Count > 0;
     }
 
     private void ApplyNamingState(NamingState state)
@@ -103,9 +219,11 @@ public sealed partial class MainWindow : Window
         {
             if (previous is not null) await previous;
             var result = await _namingPreferences.SaveAsync(state);
-            if (!_closing && result.Warning is not null) ShowNamingWarning(result.Warning, generation);
-            else if (!_closing && _monitor.History.IsCurrent(generation) && SettingsMessage.Title == "Filename preset settings")
+            if (!_closing && result.Notice is not null) ShowNamingWarning(result.Notice, generation);
+            else if (!_closing && _monitor.History.IsCurrent(generation) && _settingsTitle == "PresetSettings")
             {
+                _settingsTitle = null;
+                _settingsNotice = null;
                 SettingsMessage.IsOpen = false;
                 SettingsMessage.Title = "";
                 SettingsMessage.Message = "";
@@ -114,11 +232,13 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void ShowNamingWarning(string message, long generation)
+    private void ShowNamingWarning(UiMessage message, long generation)
     {
         if (!_monitor.History.IsCurrent(generation)) return;
-        SettingsMessage.Title = "Filename preset settings";
-        SettingsMessage.Message = message;
+        _settingsTitle = "PresetSettings";
+        _settingsNotice = message;
+        SettingsMessage.Title = _text[_settingsTitle];
+        SettingsMessage.Message = message.Render(_text);
         SettingsMessage.Severity = InfoBarSeverity.Warning;
         SettingsMessage.IsOpen = true;
     }
@@ -131,7 +251,7 @@ public sealed partial class MainWindow : Window
         PresetName.Text = preset.Name;
         _namingState = CurrentNamingState();
         try { await SaveNamingAsync(_namingState); }
-        catch (Exception exception) { ShowNamingWarning(exception.Message, _monitor.History.Generation); }
+        catch (Exception exception) { ShowNamingWarning(UiMessage.FromException(exception), _monitor.History.Generation); }
         if (!_closing) SetControls();
     }
 
@@ -147,7 +267,7 @@ public sealed partial class MainWindow : Window
         if (RuleFormula is null || RulePreview is null || FormatPicker is null) return;
         if (_namingState.Selected is null)
         {
-            RulePreview.Text = "No profiles. Choose New Profile to create a filename rule.";
+            RulePreview.Text = _text["NoProfiles"];
             _namingValid = false;
             return;
         }
@@ -156,12 +276,12 @@ public sealed partial class MainWindow : Window
             var extension = FormatPicker.SelectedIndex switch { 1 => "jpg", 2 => "bmp", _ => "png" };
             var name = FilenameRule.Parse(RuleFormula.Text).Generate(DateTimeOffset.Now, 0) + "." + extension;
             FilenameRule.ValidateName(name);
-            RulePreview.Text = "Example: " + name;
+            RulePreview.Text = _text.Format("Example", name);
             _namingValid = true;
         }
         catch (FormatException exception)
         {
-            RulePreview.Text = "Invalid formula: " + exception.Message;
+            RulePreview.Text = new UiMessage("InvalidFormula", UiMessage.FromException(exception)).Render(_text);
             _namingValid = false;
         }
     }
@@ -173,7 +293,7 @@ public sealed partial class MainWindow : Window
         {
             XamlRoot = RootGrid.XamlRoot, Title = title,
             Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
-            PrimaryButtonText = action, CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close
+            PrimaryButtonText = action, CloseButtonText = _text["Cancel"], DefaultButton = ContentDialogButton.Close
         };
         AutomationProperties.SetAutomationId(dialog, "PresetConfirmation");
         _presetDialog = dialog;
@@ -203,7 +323,7 @@ public sealed partial class MainWindow : Window
             await SaveNamingAsync(state);
             if (!_closing) ApplyNamingState(state);
         }
-        catch (Exception exception) { ShowResult("Could not change profile", exception.Message, InfoBarSeverity.Error, generation); }
+        catch (Exception exception) { ShowResult("ProfileChangeFailed", UiMessage.FromException(exception), InfoBarSeverity.Error, generation); }
         finally { _presetBusy = false; if (!_closing) SetControls(); }
     }
 
@@ -216,12 +336,12 @@ public sealed partial class MainWindow : Window
         var generation = _monitor.History.Generation;
         try
         {
-            if (!await ConfirmPresetAsync("Delete profile?", $"Delete '{preset.Name}'? Saved images will be kept.", "Delete") || _closing) return;
+            if (!await ConfirmPresetAsync(_text["DeleteProfileTitle"], _text.Format("DeleteProfileQuestion", preset.Name), _text["Delete"]) || _closing) return;
             var state = _namingState.DeleteSelected();
             await SaveNamingAsync(state);
             if (!_closing) ApplyNamingState(state);
         }
-        catch (Exception exception) { ShowResult("Could not delete preset", exception.Message, InfoBarSeverity.Error, generation); }
+        catch (Exception exception) { ShowResult("ProfileDeleteFailed", UiMessage.FromException(exception), InfoBarSeverity.Error, generation); }
         finally { _presetBusy = false; if (!_closing) SetControls(); }
     }
 
@@ -242,8 +362,10 @@ public sealed partial class MainWindow : Window
                 FolderPath.Text = result.Folder;
                 if (_monitor.History.IsCurrent(generation))
                 {
-                    SettingsMessage.Title = result.CanUse ? "Save folder settings" : "Save folder unavailable";
-                    SettingsMessage.Message = result.Warning ?? "";
+                    _settingsTitle = result.CanUse ? "FolderSettings" : "FolderUnavailable";
+                    _settingsNotice = new("Raw", new UiMessageList(result.Notices));
+                    SettingsMessage.Title = _text[_settingsTitle];
+                    SettingsMessage.Message = _settingsNotice.Render(_text);
                     SettingsMessage.Severity = result.CanUse ? InfoBarSeverity.Warning : InfoBarSeverity.Error;
                     SettingsMessage.IsOpen = result.Warning is not null;
                 }
@@ -268,7 +390,7 @@ public sealed partial class MainWindow : Window
         {
             var preference = await UpdateFolderAsync(FolderPath.Text);
             if (_closing) return;
-            if (!preference.CanUse) throw new IOException("Choose a usable save folder before starting monitoring.");
+            if (!preference.CanUse) throw UiMessage.Io("UsableFolder");
             var folder = preference.Folder;
             var options = new SaveOptions(folder, (ImageFormat)FormatPicker.SelectedIndex,
                 (int)Math.Round(JpegQuality.Value), RuleFormula.Text);
@@ -278,13 +400,13 @@ public sealed partial class MainWindow : Window
             await _monitor.StartAsync(options);
             FolderPath.Text = folder;
             _watching = true;
-            MonitoringStatus.Text = "Monitoring";
-            MonitoringHelp.Text = "Copy an image to save it automatically.";
+            _statusKey = "Monitoring";
+            LanguageChanged(this, EventArgs.Empty);
             SetControls();
         }
         catch (Exception exception)
         {
-            ShowResult("Could not start monitoring", exception.Message, InfoBarSeverity.Error, generation);
+            ShowResult("StartFailed", UiMessage.FromException(exception), InfoBarSeverity.Error, generation);
         }
         finally { _starting = false; if (!_closing) SetControls(); }
     }
@@ -304,10 +426,10 @@ public sealed partial class MainWindow : Window
         {
             await _monitor.StopAsync();
             _watching = false;
-            MonitoringStatus.Text = "Stopped";
-            MonitoringHelp.Text = "Monitoring is stopped. Images already being read or saved will finish.";
+            _statusKey = "Stopped";
+            LanguageChanged(this, EventArgs.Empty);
         }
-        catch (Exception exception) { ShowResult("Could not stop monitoring", exception.Message, InfoBarSeverity.Error, generation); }
+        catch (Exception exception) { ShowResult("StopFailed", UiMessage.FromException(exception), InfoBarSeverity.Error, generation); }
         SetControls();
     }
 
@@ -315,6 +437,8 @@ public sealed partial class MainWindow : Window
     {
         var editable = _folderReady && _namingReady && !_watching && !_starting && !_presetBusy;
         var hasProfile = PresetPicker.SelectedItem is NamingPreset;
+        LanguagePicker.IsEnabled = _languageReady && !_languageBusy && !_closing;
+        ReloadLanguagesButton.IsEnabled = _languageReady && !_languageBusy && !_closing;
         StartButton.IsEnabled = editable && _namingValid;
         StopButton.IsEnabled = _watching;
         FolderPath.IsEnabled = editable;
@@ -355,7 +479,12 @@ public sealed partial class MainWindow : Window
         PreviewImage.Visibility = Visibility.Collapsed;
         EmptyPreview.Visibility = Visibility.Visible;
         EmptyHistory.Visibility = Visibility.Visible;
-        PreviewCaption.Text = "The preview updates after an image has been saved.";
+        _caption = new("PreviewEmptyCaption");
+        PreviewCaption.Text = _caption.Render(_text);
+        _settingsTitle = null;
+        _settingsNotice = null;
+        _resultTitle = null;
+        _resultNotice = null;
         ResultMessage.IsOpen = false;
         ResultMessage.Title = "";
         ResultMessage.Message = "";
@@ -371,7 +500,7 @@ public sealed partial class MainWindow : Window
         var generation = _monitor.History.Generation;
         try
         {
-            var picker = new FolderPicker { CommitButtonText = "Select Folder" };
+            var picker = new FolderPicker { CommitButtonText = _text["SelectFolder"] };
             picker.FileTypeFilter.Add("*");
             WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
             if (_folderUpdate is not null) await _folderUpdate;
@@ -383,7 +512,7 @@ public sealed partial class MainWindow : Window
                 await UpdateFolderAsync(folder.Path);
             }
         }
-        catch (Exception exception) { ShowResult("Could not choose a folder", exception.Message, InfoBarSeverity.Error, generation); }
+        catch (Exception exception) { ShowResult("ChooseFolderFailed", UiMessage.FromException(exception), InfoBarSeverity.Error, generation); }
     }
 
     private async void OpenFolder_Click(object sender, RoutedEventArgs args)
@@ -393,12 +522,12 @@ public sealed partial class MainWindow : Window
         try
         {
             var path = FolderPath.Text.Trim();
-            if (!Path.IsPathFullyQualified(path)) throw new ArgumentException("Choose an absolute save folder path.");
+            if (!Path.IsPathFullyQualified(path)) throw UiMessage.Argument("AbsoluteFolder");
             Directory.CreateDirectory(path);
             if (!await Launcher.LaunchFolderAsync(await StorageFolder.GetFolderFromPathAsync(path)))
-                throw new IOException("Windows could not open this folder.");
+                throw UiMessage.Io("WindowsOpenFolderFailed");
         }
-        catch (Exception exception) { ShowResult("Could not open the folder", exception.Message, InfoBarSeverity.Error, generation); }
+        catch (Exception exception) { ShowResult("OpenFolderFailed", UiMessage.FromException(exception), InfoBarSeverity.Error, generation); }
     }
 
     private void RefreshResults(DispatcherQueueTimer sender, object args)
@@ -406,11 +535,11 @@ public sealed partial class MainWindow : Window
         for (var i = 0; i < 32 && _monitor.Results.TryRead(out var result); i++)
         {
             if (!_monitor.History.IsCurrent(result.Generation)) continue;
-            _history.Insert(0, new HistoryItem(result));
+            _history.Insert(0, new HistoryItem(result, _text));
             if (_history.Count > 100) _history.RemoveAt(_history.Count - 1);
             EmptyHistory.Visibility = Visibility.Collapsed;
-            ShowResult(result.Success ? "Image saved" : "Save failed",
-                result.Success ? result.FilePath : result.Error,
+            ShowResult(result.Success ? "ImageSaved" : "SaveFailed",
+                result.Success ? new("Raw", result.FilePath) : result.ErrorMessage ?? new("Raw", result.Error),
                 result.Success ? InfoBarSeverity.Success : InfoBarSeverity.Error, result.Generation);
         }
         var latest = _monitor.History.LatestSaved;
@@ -437,22 +566,28 @@ public sealed partial class MainWindow : Window
             PreviewImage.Source = bitmap;
             PreviewImage.Visibility = Visibility.Visible;
             EmptyPreview.Visibility = Visibility.Collapsed;
-            PreviewCaption.Text = $"{Path.GetFileName(result.FilePath)} · {result.Width} × {result.Height} · {result.Time:HH:mm:ss}";
+            _caption = new("Raw", string.Create(CultureInfo.InvariantCulture, $"{Path.GetFileName(result.FilePath)} · {result.Width} × {result.Height} · {result.Time:HH:mm:ss}"));
+            PreviewCaption.Text = _caption.Render(_text);
         }
         catch (OperationCanceledException) { }
         catch (Exception exception)
         {
             if (!_closing && _monitor.History.CanPreview(result))
-                PreviewCaption.Text = $"Image saved, but the preview could not be loaded: {exception.Message}";
+            {
+                _caption = new("PreviewFailed", UiMessage.FromException(exception));
+                PreviewCaption.Text = _caption.Render(_text);
+            }
         }
         finally { _previewCancellation = null; _previewBusy = false; }
     }
 
-    private void ShowResult(string title, string message, InfoBarSeverity severity, long generation)
+    private void ShowResult(string title, UiMessage message, InfoBarSeverity severity, long generation)
     {
         if (!_monitor.History.IsCurrent(generation)) return;
-        ResultMessage.Title = title;
-        ResultMessage.Message = message;
+        _resultTitle = title;
+        _resultNotice = message;
+        ResultMessage.Title = _text[title];
+        ResultMessage.Message = message.Render(_text);
         ResultMessage.Severity = severity;
         ResultMessage.IsOpen = true;
     }
@@ -464,21 +599,21 @@ public sealed partial class MainWindow : Window
         var dialog = new ContentDialog
         {
             XamlRoot = RootGrid.XamlRoot,
-            Title = item.Result.Success ? "Saved image" : "Save failed",
+            Title = _text[item.Result.Success ? "SavedImage" : "SaveFailed"],
             Content = new TextBlock
             {
-                Text = $"{item.Result.FilePath}\n\n{item.Result.Time:yyyy-MM-dd HH:mm:ss zzz}\n\n" +
-                    (item.Result.Success ? "The image was saved successfully." : item.Result.Error),
+                Text = string.Create(CultureInfo.InvariantCulture, $"{item.Result.FilePath}\n\n{item.Result.Time:yyyy-MM-dd HH:mm:ss zzz}\n\n") +
+                    (item.Result.Success ? _text["SavedSuccessfully"] : item.Summary + "\n\n" + _text["TechnicalDetails"] + ": " + item.Result.Error),
                 TextWrapping = TextWrapping.Wrap,
                 IsTextSelectionEnabled = true
             },
-            CloseButtonText = "Close"
+            CloseButtonText = _text["Close"]
         };
         AutomationProperties.SetAutomationId(dialog, "FileDetails");
         _detailsOpen = true;
         _detailsDialog = dialog;
         try { await dialog.ShowAsync(); }
-        catch (Exception exception) { ShowResult("Could not show file details", exception.Message, InfoBarSeverity.Error, item.Result.Generation); }
+        catch (Exception exception) { ShowResult("DetailsFailed", UiMessage.FromException(exception), InfoBarSeverity.Error, item.Result.Generation); }
         finally { _detailsDialog = null; _detailsOpen = false; }
     }
 
@@ -489,7 +624,8 @@ public sealed partial class MainWindow : Window
         if (_closing) return;
         _closing = true;
         RootPanel.IsHitTestVisible = false;
-        MonitoringStatus.Text = "Finishing saves";
+        _statusKey = "Finishing";
+        MonitoringStatus.Text = _text[_statusKey];
         _refresh.Stop();
         _previewCancellation?.Cancel();
         _presetDialog?.Hide();
@@ -499,19 +635,26 @@ public sealed partial class MainWindow : Window
             if (_folderUpdate is not null) await _folderUpdate;
             if (_namingReady && !_watching && !_starting && !_presetBusy && (_namingValid || _namingState.Selected is null)) await SaveNamingAsync(CurrentNamingState());
             if (_namingUpdate is not null) await _namingUpdate;
+            if (_languageUpdate is not null) await _languageUpdate;
             await _monitor.DisposeAsync();
         }
-        finally { _allowClose = true; Close(); }
+        finally { _text.LanguageChanged -= LanguageChanged; _allowClose = true; Close(); }
     }
 }
 
-public sealed class HistoryItem(SaveResult result)
+public sealed class HistoryItem(SaveResult result, UiText text) : INotifyPropertyChanged
 {
+    public event PropertyChangedEventHandler? PropertyChanged;
+    public void RefreshLanguage()
+    {
+        foreach (var property in new[] { nameof(Name), nameof(Status), nameof(Summary) })
+            PropertyChanged?.Invoke(this, new(property));
+    }
     public SaveResult Result { get; } = result;
     public string Name => Path.GetExtension(Result.FilePath) is ".png" or ".jpg" or ".bmp"
-        ? Path.GetFileName(Result.FilePath) : "Clipboard image";
-    public string Time => Result.Time.ToString("yyyy-MM-dd HH:mm:ss");
-    public string Status => Result.Success ? "Saved" : "Failed";
-    public string Summary => Result.Success ? Result.FilePath : Result.Error;
+        ? Path.GetFileName(Result.FilePath) : text["ClipboardImage"];
+    public string Time => Result.Time.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+    public string Status => text[Result.Success ? "Saved" : "Failed"];
+    public string Summary => Result.Success ? Result.FilePath : (Result.ErrorMessage ?? new UiMessage("Raw", Result.Error)).Render(text);
     public SolidColorBrush StatusBrush => new(Result.Success ? Microsoft.UI.Colors.ForestGreen : Microsoft.UI.Colors.IndianRed);
 }
