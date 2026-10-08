@@ -83,6 +83,10 @@ static class LanguageContracts
             custom = LanguageCatalog.Load(root);
             Check.That(custom.Notices.Count == 3 && custom.Languages.Count == 2 && custom.Languages.All(l => l.Code is "en" or "ja"),
                 "Malformed JSON, placeholder injection or duplicate keys were not isolated from usable languages.");
+            await File.WriteAllTextAsync(Path.Combine(root, "en.json"), "{\"languageName\":\"English\",\"strings\":{\"Stop\":\"Edited English Stop\"}}");
+            text.ReplaceCatalog(LanguageCatalog.Load(root));
+            Check.That(text["Stop"] == "Edited English Stop", "Missing custom keys did not use the edited external English pack.");
+            File.Delete(Path.Combine(root, "en.json"));
             File.Delete(Path.Combine(root, "ja.json"));
             text.ReplaceCatalog(LanguageCatalog.Load(root));
             Check.That(text.Language.Code == "en" && text["Start"] == "Start", "Removing an active translation did not safely fall back to English.");

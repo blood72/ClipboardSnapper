@@ -53,7 +53,7 @@ public sealed record LanguageCatalog(IReadOnlyList<LanguageOption> Languages, IR
                         languages["en"] = new("en", name, strings);
                     }
                 }
-                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or
+                catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException or JsonException or
                     InvalidOperationException or KeyNotFoundException or FormatException or DecoderFallbackException)
                 { notices.Add(new("LanguageFileInvalid", file, UiMessage.FromException(exception))); }
             }
@@ -93,7 +93,8 @@ public sealed class UiText : INotifyPropertyChanged
         Catalog = catalog;
         Language = catalog.Languages.First(l => l.Code == "en");
     }
-    public string this[string key] => Language.Strings.TryGetValue(key, out var value) ? value : EnglishStrings[key];
+    public string this[string key] => Language.Strings.TryGetValue(key, out var value) ? value :
+        Catalog.Languages.First(l => l.Code == "en").Strings.TryGetValue(key, out var english) ? english : EnglishStrings[key];
     public string Format(string key, params object[] arguments) => FormatValue(this[key], arguments);
     public static string English(string key, params object[] arguments) => FormatValue(EnglishStrings[key], arguments);
 
