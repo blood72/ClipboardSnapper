@@ -15,25 +15,25 @@ public sealed record NamingState(string Formula, string SelectedPresetId, IReadO
 
     public NamingState DuplicateProfile()
     {
-        var source = Selected ?? throw new InvalidOperationException("Select a profile to duplicate.");
+        var source = Selected ?? throw UiMessage.InvalidOperation("ChooseDuplicate");
         return AddProfile(UniqueName(source.Name + " copy"), source.Formula);
     }
 
     public NamingState UpdateSelected(string name, string formula)
     {
-        var selected = Selected ?? throw new InvalidOperationException("Select a profile to save.");
+        var selected = Selected ?? throw UiMessage.InvalidOperation("ChooseSave");
         name = name.Trim();
         if (name.Length == 0 || name.Any(c => c < 32))
-            throw new ArgumentException("Enter a profile name without control characters.");
+            throw UiMessage.Argument("InvalidProfileName");
         if (Presets.Any(p => p.Id != selected.Id && p.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
-            throw new ArgumentException("Another profile already uses that name. Choose a unique name.");
+            throw UiMessage.Argument("ProfileNameConflict");
         var updated = selected with { Name = name, Formula = formula };
         return new(formula, selected.Id, Presets.Select(p => p.Id == selected.Id ? updated : p).ToArray());
     }
 
     public NamingState DeleteSelected()
     {
-        var selected = Selected ?? throw new InvalidOperationException("Select a profile to delete.");
+        var selected = Selected ?? throw UiMessage.InvalidOperation("ChooseDelete");
         var remaining = Presets.Where(p => p.Id != selected.Id).ToArray();
         var next = remaining.FirstOrDefault();
         return new(next?.Formula ?? FilenameRule.DefaultFormula, next?.Id ?? "", remaining);
@@ -54,7 +54,10 @@ public sealed record NamingState(string Formula, string SelectedPresetId, IReadO
     }
 }
 
-public sealed record NamingPreference(NamingState State, string? Warning);
+public sealed record NamingPreference(NamingState State, UiMessage? Notice)
+{
+    public string? Warning => Notice?.English;
+}
 
 public sealed class NamingPreferences(string configPath)
 {
@@ -66,7 +69,7 @@ public sealed class NamingPreferences(string configPath)
         catch (Exception exception) when (IsPreferenceError(exception))
         {
             return new NamingPreference(NamingState.Default,
-                $"Could not read filename presets from config.ini. Using the default rule. The configuration was not replaced. {exception.Message}");
+                new("NamingReadFailed", UiMessage.FromException(exception)));
         }
     });
 
@@ -90,7 +93,7 @@ public sealed class NamingPreferences(string configPath)
         catch (Exception exception) when (IsPreferenceError(exception))
         {
             return new NamingPreference(state,
-                $"Could not save filename presets in config.ini. Changes are available for this session only. {exception.Message}");
+                new("NamingWriteFailed", UiMessage.FromException(exception)));
         }
     });
 
@@ -101,9 +104,9 @@ public sealed class NamingPreferences(string configPath)
         {
             if (!key.StartsWith("Preset.", StringComparison.OrdinalIgnoreCase)) continue;
             var preset = JsonSerializer.Deserialize<NamingPreset>(value)
-                ?? throw new InvalidDataException("A filename preset is empty.");
+                ?? throw UiMessage.InvalidData("EmptyPreset");
             if (!key[7..].Equals(preset.Id, StringComparison.Ordinal))
-                throw new InvalidDataException("A filename preset ID does not match its INI entry.");
+                throw UiMessage.InvalidData("PresetIdMismatch");
             presets.Add(preset);
         }
         var state = new NamingState(document.Get("Naming", "Formula") ?? FilenameRule.DefaultFormula,
@@ -124,13 +127,13 @@ public sealed class NamingPreferences(string configPath)
             if (preset.Id is null || !Guid.TryParseExact(preset.Id, "N", out _) || !ids.Add(preset.Id) ||
                 string.IsNullOrWhiteSpace(preset.Name) || preset.Name != preset.Name.Trim() ||
                 preset.Name.Any(c => c < 32) || !names.Add(preset.Name))
-                throw new InvalidDataException("Preset names and IDs must be valid and unique.");
+                throw UiMessage.InvalidData("InvalidPresetIdentity");
             ValidateFormula(preset.Formula);
         }
         if (state.SelectedPresetId is null || (state.SelectedPresetId.Length > 0 && !ids.Contains(state.SelectedPresetId)))
-            throw new InvalidDataException("The selected filename preset does not exist.");
+            throw UiMessage.InvalidData("MissingPreset");
         if (state.Presets.Count > 0 && state.SelectedPresetId.Length == 0)
-            throw new InvalidDataException("Select an existing filename profile.");
+            throw UiMessage.InvalidData("ChooseExistingProfile");
     }
 
     private static void ValidateFormula(string formula) =>

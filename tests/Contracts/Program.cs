@@ -5,6 +5,7 @@ try
     await SessionContracts.RunAsync();
     await PreferenceContracts.RunAsync();
     await NamingContracts.RunAsync();
+    await LanguageContracts.RunAsync();
 #if WINDOWS
     await EncoderContracts.RunAsync();
 #endif

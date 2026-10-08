@@ -7,6 +7,10 @@
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../../ClipboardSnapper/UiText.cs" Link="UiText.cs" />
+    <Compile Include="../../ClipboardSnapper/LanguagePreferences.cs" Link="LanguagePreferences.cs" />
+    <EmbeddedResource Include="../../ClipboardSnapper/lang/en.json" LogicalName="ClipboardSnapper.lang.en.json" />
+    <Content Include="../../ClipboardSnapper/lang/*.json" Link="lang/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <Compile Include="../../ClipboardSnapper/ImageModels.cs" Link="ImageModels.cs" />
     <Compile Include="../../ClipboardSnapper/SessionHistory.cs" Link="SessionHistory.cs" />
     <Compile Include="../../ClipboardSnapper/SaveFolderPreferences.cs" Link="SaveFolderPreferences.cs" />

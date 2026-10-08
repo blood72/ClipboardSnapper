@@ -67,6 +67,7 @@ jobs:
           Write-Output "::notice::Published PRI files: $((Get-ChildItem $publish -Filter *.pri).Name -join ', ')"
           $required = @(
             'ClipboardSnapper.exe', 'ClipboardSnapper.dll',
+            'lang/en.json', 'lang/ko.json',
             'ClipboardSnapper.deps.json', 'ClipboardSnapper.runtimeconfig.json',
             'coreclr.dll', 'hostfxr.dll', 'hostpolicy.dll', 'System.Private.CoreLib.dll',
             'Microsoft.UI.Xaml.dll', 'Microsoft.UI.Xaml.Controls.pri', 'ClipboardSnapper.pri',

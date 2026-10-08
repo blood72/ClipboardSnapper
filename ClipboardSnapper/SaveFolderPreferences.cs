@@ -1,6 +1,9 @@
 namespace ClipboardSnapper;
 
-public sealed record FolderPreference(string Folder, bool CanUse, string? Warning);
+public sealed record FolderPreference(string Folder, bool CanUse, IReadOnlyList<UiMessage> Notices)
+{
+    public string? Warning => Notices.Count == 0 ? null : string.Join("\n", Notices.Select(m => m.English));
+}
 
 public sealed class SaveFolderPreferences(string configPath, string defaultFolder)
 {
@@ -19,27 +22,29 @@ public sealed class SaveFolderPreferences(string configPath, string defaultFolde
         catch (Exception exception) when (IsStorageError(exception))
         {
             return Resolve(DefaultFolder, false,
-                $"Could not read config.ini. Using the default folder. The configuration was not replaced. {exception.Message}");
+                new UiMessage("FolderReadFailed", UiMessage.FromException(exception)));
         }
         return Resolve(saved ?? DefaultFolder, false, null);
     });
 
     public Task<FolderPreference> SaveAsync(string folder) => Task.Run(() => Resolve(folder, true, null));
 
-    private FolderPreference Resolve(string folder, bool persist, string? warning)
+    private FolderPreference Resolve(string folder, bool persist, UiMessage? initialNotice)
     {
+        var notices = new List<UiMessage>();
+        if (initialNotice is not null) notices.Add(initialNotice);
         var canUse = true;
         try { folder = CheckFolder(folder); }
         catch (Exception exception) when (IsStorageError(exception))
         {
-            warning = Join(warning, $"The save folder cannot be used. Reverted to the default folder. {exception.Message}");
+            notices.Add(new("FolderFallback", UiMessage.FromException(exception)));
             folder = DefaultFolder;
             persist = true;
             try { folder = CheckFolder(folder); }
             catch (Exception fallbackError) when (IsStorageError(fallbackError))
             {
                 canUse = false;
-                warning = Join(warning, $"The default folder also cannot be used. Choose another folder before starting. {fallbackError.Message}");
+                notices.Add(new("DefaultFolderFailed", UiMessage.FromException(fallbackError)));
             }
         }
 
@@ -48,17 +53,17 @@ public sealed class SaveFolderPreferences(string configPath, string defaultFolde
             try { WriteFolder(folder); }
             catch (Exception exception) when (IsStorageError(exception))
             {
-                warning = Join(warning, $"Could not save the folder in config.ini. The current selection is available for this session only. {exception.Message}");
+                notices.Add(new("FolderWriteFailed", UiMessage.FromException(exception)));
             }
         }
-        return new FolderPreference(folder, canUse, warning);
+        return new FolderPreference(folder, canUse, notices.ToArray());
     }
 
     private static string CheckFolder(string folder)
     {
         folder = folder.Trim();
         if (folder.IndexOfAny(['\r', '\n', '\0']) >= 0 || !Path.IsPathFullyQualified(folder))
-            throw new ArgumentException("Choose an absolute save folder path without line breaks.");
+            throw UiMessage.Argument("AbsoluteFolderNoBreaks");
         folder = Path.GetFullPath(folder);
         Directory.CreateDirectory(folder);
         // Check write access away from the UI/capture threads; remove only our own probe.
@@ -76,5 +81,4 @@ public sealed class SaveFolderPreferences(string configPath, string defaultFolde
 
     private static bool IsStorageError(Exception exception) => PortableConfig.IsStorageError(exception);
 
-    private static string Join(string? first, string second) => first is null ? second : $"{first}\n{second}";
 }

@@ -16,7 +16,7 @@ public sealed class FilenameRule
 
     public static FilenameRule Parse(string formula)
     {
-        if (string.IsNullOrWhiteSpace(formula)) throw new FormatException("Enter a filename formula.");
+        if (string.IsNullOrWhiteSpace(formula)) throw UiMessage.Format("EnterFormula");
         var parts = new List<Func<DateTimeOffset, long, string>>();
         for (var i = 0; i < formula.Length;)
         {
@@ -38,13 +38,13 @@ public sealed class FilenameRule
             if (i + 1 < formula.Length && formula[i + 1] == '{')
             {
                 var end = formula.IndexOf('}', i + 2);
-                if (end < 0) throw new FormatException("Close the variable expression with }.");
+                if (end < 0) throw UiMessage.Format("CloseVariable");
                 parts.Add(ParseExpression(formula[(i + 2)..end]));
                 i = end + 1;
                 continue;
             }
             var token = DateTokens.FirstOrDefault(token => formula.AsSpan(i + 1).StartsWith(token, StringComparison.Ordinal));
-            if (token is null) throw new FormatException("Unknown variable. Use PowerRename date/time or ${...} variables; use $$ for a literal $.");
+            if (token is null) throw UiMessage.Format("UnknownVariable");
             // Retain the local clock fields recorded at acceptance even if the OS time zone later changes.
             parts.Add((time, _) => FormatDate(time.DateTime, token));
             i += token.Length + 1;
@@ -66,12 +66,12 @@ public sealed class FilenameRule
     {
         if (string.IsNullOrWhiteSpace(name) || name.EndsWith('.') || name.EndsWith(' ') ||
             name.Length > 255 || name.Any(c => c < 32 || "<>:\"/\\|?*".Contains(c)))
-            throw new FormatException("The generated name must be a valid Windows filename, at most 255 characters, without path separators or a trailing dot/space.");
+            throw UiMessage.Format("InvalidWindowsName");
         var device = name.Split('.')[0].TrimEnd(' ').ToUpperInvariant();
         if (device is "CON" or "PRN" or "AUX" or "NUL" or "CONIN$" or "CONOUT$" ||
             (device.Length == 4 && (device.StartsWith("COM", StringComparison.Ordinal) || device.StartsWith("LPT", StringComparison.Ordinal)) &&
                 "123456789¹²³".Contains(device[3])))
-            throw new FormatException("The formula produces a reserved Windows device name.");
+            throw UiMessage.Format("ReservedName");
     }
 
     private static Func<DateTimeOffset, long, string> ParseExpression(string expression)
@@ -84,7 +84,7 @@ public sealed class FilenameRule
         {
             if (!expression.StartsWith(key + "=", StringComparison.Ordinal)) continue;
             if (!int.TryParse(expression[(key.Length + 1)..], NumberStyles.None, CultureInfo.InvariantCulture, out var length) || length is < 1 or > 255)
-                throw new FormatException("Random string length must be between 1 and 255.");
+                throw UiMessage.Format("RandomLength");
             return (_, _) => string.Create(length, alphabet, (span, characters) =>
             {
                 for (var i = 0; i < span.Length; i++) span[i] = characters[RandomNumberGenerator.GetInt32(characters.Length)];
@@ -100,13 +100,13 @@ public sealed class FilenameRule
                 var pair = option.Split('=');
                 if (pair.Length != 2 || !keys.Add(pair[0]) ||
                     !long.TryParse(pair[1], NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var number))
-                    throw new FormatException("Use ${start=1;padding=4;increment=1} for a counter.");
+                    throw UiMessage.Format("CounterSyntax");
                 switch (pair[0])
                 {
                     case "start": start = number; break;
                     case "increment": increment = number; break;
                     case "padding" when number is >= 0 and <= 255: padding = (int)number; break;
-                    default: throw new FormatException("Counter options are start, increment and padding (0–255).");
+                    default: throw UiMessage.Format("CounterOptions");
                 }
             }
         }
@@ -136,7 +136,7 @@ public sealed class FilenameRule
         "fff" => date.Millisecond.ToString("D3", CultureInfo.InvariantCulture),
         "ff" => date.Millisecond.ToString("D3", CultureInfo.InvariantCulture)[..2],
         "f" => date.Millisecond.ToString("D3", CultureInfo.InvariantCulture)[..1],
-        _ => throw new FormatException("Unknown date variable.")
+        _ => throw UiMessage.Format("UnknownDate")
     };
 }
 

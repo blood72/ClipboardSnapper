@@ -1,8 +1,9 @@
 # ClipboardSnapper
 
 A C# / WinUI 3 desktop app that saves new clipboard images while monitoring is
-enabled. The English screen shows monitoring controls, save settings, the latest
-saved image, and recent successes and failures.
+enabled. English and Korean screens show monitoring controls, save settings, the
+latest saved image, and recent successes and failures. The instructions below use
+the English control names.
 
 ## Use the app
 
@@ -29,7 +30,7 @@ saved image, and recent successes and failures.
    cleanup action, not secure deletion. Folder settings, filename presets and
    numbering state are kept.
 
-The save folder, filename formula, active preset and saved user presets are
+The UI language, save folder, filename formula, active preset and saved user presets are
 remembered in `config.ini` beside the executable. Image format,
 JPEG quality and the latest 100 history rows are session-only. Files remain on disk.
 Closing the window waits for accepted reads and writes to finish. JPEG images
@@ -38,6 +39,41 @@ use temporary files and do not expose a partially written final image.
 JPEG quality is passed to `BitmapEncoder` as the `ImageQuality` option, dividing
 the integer slider value by 100 to produce a single-precision value from 0.01 to
 1.0. It is not applied to PNG or BMP.
+
+## Language and editable translations
+
+On first launch, the app follows the Windows UI language. It tries an available
+exact language tag and then its parent tags: `ko-KR` uses `ko`; an unavailable
+language uses English. **Language** selects a language immediately, including
+while monitoring. The choice is remembered in executable-adjacent `config.ini`:
+
+```ini
+[Appearance]
+Language=ko
+```
+
+An unavailable saved language falls back to English with a warning. A read-only
+or otherwise unwritable configuration keeps the choice for this session only and
+shows a warning. Changing language preserves monitoring, queued saves, existing
+history, preview, paths and profile names. Filename formulas, date variables,
+numeric collision suffixes and fixed `yyyy-MM-dd HH:mm:ss` timestamps keep their
+existing formatting. Windows-owned dialogs and raw system/library diagnostics
+retain their Windows-provided language; file Details also keeps the original
+exception information. Repository documentation remains English.
+
+Translations are editable UTF-8 files in **`lang` beside `ClipboardSnapper.exe`**.
+The publish artifact includes `lang/en.json` and `lang/ko.json`. Add another
+language-tag JSON file, such as `lang/ja.json`, and press **Reload languages**;
+no app rebuild or restart is required. Editing a file and reloading also updates
+an already selected language. Removing or invalidating the selected file returns
+the app to English and reports the change. Missing translation keys use the
+current English file, then the embedded English baseline. Malformed JSON, duplicate
+keys, invalid language tags and incompatible placeholders are rejected per file;
+other language files remain usable. Embedded English handles absent external files.
+
+See [Translation file guide](docs/translations.md) for the format and examples.
+Until formal 1.0.0, migrations between snapshot configuration formats are not
+required. Overall UI cleanup and comprehensive visual/DPI review remain a later task.
 
 ## Remembered save folder
 
@@ -300,6 +336,15 @@ cleanup. UI Automation exercises explicit New/Duplicate, stable-ID updates and r
 without prompts, conflicting-name rejection, deletion/cancellation, empty collections,
 restart restoration, formula validation, locked monitoring controls,
 counter behavior across Clear/Start and preserved files/settings.
+Localization contracts check complete Korean keys, OS/explicit/fallback policy,
+structured errors with unchanged diagnostics, live notifications, concurrent
+language/folder/profile INI writes, malformed/read-only settings, custom JSON packs,
+key fallback and malformed-file isolation. Windows UI Automation exercises Korean
+controls, help/accessibility, validation and dialogs; PNG/JPEG/BMP saving; language
+switches while monitoring with existing history; Clear History, file/clipboard
+retention; translated failures with original diagnostics; restart/session-only
+language choices; new/edited/removed JSON languages; and Korean narrow-window reflow.
+Both JSON files are required publish contents and included in artifact verification.
 The artifact is uploaded
 only after these checks pass. CI then downloads that artifact and compares
 every file's relative path and SHA-256 hash with the publish output, including a

@@ -1,4 +1,4 @@
-param([Parameter(Mandatory = $true)][string]$PublishPath)
+﻿param([Parameter(Mandatory = $true)][string]$PublishPath)
 $ErrorActionPreference = 'Stop'
 trap {
     $trace = $_.ScriptStackTrace -replace '\r?\n', ' | '
@@ -119,7 +119,7 @@ function Start-App {
     Wait-For { $process.Refresh(); $process.MainWindowHandle -ne [IntPtr]::Zero } 'the main window'
     $script:root = [System.Windows.Automation.AutomationElement]::FromHandle($process.MainWindowHandle)
     Wait-For { $null -ne (Find-Control 'FormatPicker') -and (Find-Control 'FormatPicker').Current.IsEnabled } 'loaded folder and profile settings'
-    if ((Find-Control 'MonitoringStatus').Current.Name -ne 'Ready') { throw 'Initial state is not Ready.' }
+    if ((Find-Control 'MonitoringStatus').Current.Name -notin @('Ready', '준비됨')) { throw 'Initial state is not Ready.' }
 }
 function Close-App {
     $window = [System.Windows.Automation.WindowPattern]$root.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern)
@@ -161,7 +161,12 @@ function Select-Option([string]$Id, [string]$Name) {
     $choice = Find-Name $script:root $Name
     ([System.Windows.Automation.SelectionItemPattern]$choice.GetCurrentPattern(
         [System.Windows.Automation.SelectionItemPattern]::Pattern)).Select()
-    $expand.Collapse()
+    # A live language change can replace automation peers and close the popup itself.
+    Wait-For { $null -ne (Find-Control $Id) -and (Find-Control $Id).Current.IsEnabled } "ready $Id after selection"
+    $combo = Find-Control $Id
+    $expand = [System.Windows.Automation.ExpandCollapsePattern]$combo.GetCurrentPattern(
+        [System.Windows.Automation.ExpandCollapsePattern]::Pattern)
+    if ($expand.Current.ExpandCollapseState -eq [System.Windows.Automation.ExpandCollapseState]::Expanded) { $expand.Collapse() }
     $selection = [System.Windows.Automation.SelectionPattern]$combo.GetCurrentPattern(
         [System.Windows.Automation.SelectionPattern]::Pattern)
     Wait-For { $selection.Current.GetSelection()[0].Current.Name -eq $Name } "$Name selection"
@@ -200,12 +205,12 @@ function Copy-Image {
 function Start-Monitoring {
     Scroll-ToTop
     Invoke-Id 'StartButton'
-    Wait-For { (Find-Control 'MonitoringStatus').Current.Name -eq 'Monitoring' } 'monitoring state'
+    Wait-For { (Find-Control 'MonitoringStatus').Current.Name -in @('Monitoring', '감시 중') } 'monitoring state'
 }
 function Stop-Monitoring {
     Scroll-ToTop
     Invoke-Id 'StopButton'
-    Wait-For { (Find-Control 'MonitoringStatus').Current.Name -eq 'Stopped' } 'stopped state'
+    Wait-For { (Find-Control 'MonitoringStatus').Current.Name -in @('Stopped', '중지됨') } 'stopped state'
 }
 function Set-Quality([double]$Quality) {
     ([System.Windows.Automation.RangeValuePattern](Find-Control 'JpegQuality').GetCurrentPattern(
@@ -245,6 +250,30 @@ function Clear-History {
     if ($before -ne $after) { throw 'Clear modified saved files.' }
 }
 
+function Select-Language([string]$Name, [string]$StartName) {
+    Scroll-ToTop
+    Select-Option 'LanguagePicker' $Name
+    Wait-For { (Find-Control 'LanguagePicker').Current.IsEnabled -and (Find-Control 'StartButton').Current.Name -eq $StartName } "live language $Name"
+}
+function Assert-KoreanEmpty {
+    Wait-For {
+        $null -eq (Find-Control 'PreviewImage') -and
+        $null -ne (Find-Name $root '아직 저장한 이미지가 없습니다') -and
+        (Find-Control 'EmptyHistory').Current.Name -eq '현재 세션에서 저장한 이미지와 실패 내역이 여기에 표시됩니다.' -and
+        (Find-Control 'PreviewCaption').Current.Name -eq '이미지를 저장하면 미리보기가 갱신됩니다.'
+    } 'Korean empty guidance and cleared preview'
+}
+function Clear-KoreanHistory {
+    $state = (Find-Control 'MonitoringStatus').Current.Name
+    $sequence = [DesktopNative]::GetClipboardSequenceNumber()
+    $before = @(Get-ChildItem $testFolder -File | ForEach-Object { (Get-FileHash $_.FullName).Hash }) -join ','
+    if (-not (Find-Control 'ClearHistoryButton').Current.HelpText.Contains('저장 파일은 유지됩니다')) { throw 'Korean retention help is missing.' }
+    Invoke-Id 'ClearHistoryButton'
+    Assert-KoreanEmpty
+    $after = @(Get-ChildItem $testFolder -File | ForEach-Object { (Get-FileHash $_.FullName).Hash }) -join ','
+    if ($before -ne $after -or $sequence -ne [DesktopNative]::GetClipboardSequenceNumber() -or (Find-Control 'MonitoringStatus').Current.Name -ne $state) { throw 'Korean Clear altered files, clipboard or monitoring.' }
+}
+
 $publish = (Resolve-Path $PublishPath).Path
 $config = Join-Path $publish 'config.ini'
 $originalConfig = if (Test-Path $config -PathType Leaf) { [IO.File]::ReadAllBytes($config) } else { $null }
@@ -252,6 +281,8 @@ if (Test-Path $config) { Remove-Item $config -Force }
 $testFolder = Join-Path $env:RUNNER_TEMP ('ClipboardSnapper-smoke-' + [Guid]::NewGuid().ToString('N'))
 [void](New-Item -ItemType Directory -Path $testFolder)
 $process = $null
+$customLanguage = Join-Path $publish 'lang/ja.json'
+$invalidLanguage = Join-Path $publish 'lang/de.json'
 try {
     Start-App
     $defaultFolder = Join-Path ([Environment]::GetFolderPath('MyPictures')) 'ClipboardSnapper'
@@ -444,6 +475,115 @@ try {
     Expand-Naming $false
     Write-Output '::notice::Profile UI verified: New default / Duplicate saved source, stable-ID save and rename without prompts, conflicting-name rejection, ordinary default editing/deletion, delete cancellation, empty collection/restart/recovery, read-only session changes, counters across Clear/Start, collision suffixes and existing-image/config preservation.'
 
+    # Verify real Korean UI, live state/history translation and unchanged collection/saving.
+    Select-Language '한국어' '시작'
+    Wait-For { (Read-Config).Contains('Language=ko') } 'persisted Korean choice'
+    Assert-KoreanEmpty
+    if ((Find-Control 'MonitoringStatus').Current.Name -ne '준비됨' -or (Find-Control 'StopButton').Current.Name -ne '중지' -or (Find-Control 'FolderPath').Current.Name -ne '저장 폴더') { throw 'Korean ready controls/accessibility are incomplete.' }
+    Expand-Naming $true
+    if ((Find-Control 'SavePresetButton').Current.Name -ne '프리셋 저장') { throw 'Profile controls were not localized.' }
+    Set-Text 'RuleFormula' '$unknown'
+    Wait-For { (Find-Control 'RulePreview').Current.Name.StartsWith('잘못된 규칙: 알 수 없는 변수입니다.') -and -not (Find-Control 'StartButton').Current.IsEnabled } 'Korean formula validation'
+    Set-Text 'RuleFormula' $defaultRule
+    Invoke-Id 'DeletePresetButton'
+    Wait-For { $null -ne (Find-Name (Find-Control 'PresetConfirmation') '프로필을 삭제할까요?') } 'Korean deletion question'
+    Confirm-Preset '취소'
+    Expand-Naming $false
+    Commit-Folder $testFolder
+    foreach ($format in @(@('PNG', 'png'), @('JPEG', 'jpg'), @('BMP', 'bmp'))) {
+        Select-Format $format[0]
+        if ($format[0] -eq 'JPEG') {
+            if ((Find-Control 'JpegQuality').Current.Name -ne 'JPEG 품질') { throw 'Korean JPEG quality accessibility is missing.' }
+            Set-Quality 42
+        }
+        $pattern = '*.' + $format[1]
+        $before = @(Get-ChildItem $testFolder -Filter $pattern).Count
+        Start-Monitoring
+        Copy-Image
+        Wait-For { @(Get-ChildItem $testFolder -Filter $pattern).Count -gt $before -and $null -ne (Find-Name (Find-Control 'HistoryList') '저장 성공') -and $null -ne (Find-Control 'PreviewImage') } "Korean $($format[0]) save/preview/history"
+        if ($format[0] -eq 'JPEG') {
+            if ((Find-Control 'JpegQuality').Current.IsEnabled -or -not (Find-Control 'LanguagePicker').Current.IsEnabled) { throw 'Language choice must stay available while save options are frozen.' }
+            $filesBeforeSwitch = @(Get-ChildItem $testFolder -File | ForEach-Object { (Get-FileHash $_.FullName).Hash }) -join ','
+            Select-Language 'English' 'Start'
+            Wait-For { (Find-Control 'MonitoringStatus').Current.Name -eq 'Monitoring' -and $null -ne (Find-Name (Find-Control 'HistoryList') 'Saved') } 'existing monitoring/history translated into English'
+            Select-Language '한국어' '시작'
+            Wait-For { (Find-Control 'MonitoringStatus').Current.Name -eq '감시 중' -and $null -ne (Find-Name (Find-Control 'HistoryList') '저장 성공') } 'existing monitoring/history translated into Korean'
+            $filesAfterSwitch = @(Get-ChildItem $testFolder -File | ForEach-Object { (Get-FileHash $_.FullName).Hash }) -join ','
+            if ($filesBeforeSwitch -ne $filesAfterSwitch) { throw 'Switching language changed saved files.' }
+        }
+        Clear-KoreanHistory
+        Clear-KoreanHistory
+        $before = @(Get-ChildItem $testFolder -Filter $pattern).Count
+        Copy-Image
+        Wait-For { @(Get-ChildItem $testFolder -Filter $pattern).Count -gt $before -and $null -ne (Find-Name (Find-Control 'HistoryList') '저장 성공') } 'fresh Korean save after Clear'
+        Stop-Monitoring
+        if ($format[0] -eq 'JPEG') { Set-Quality 90 }
+        Clear-KoreanHistory
+    }
+    Set-Folder 'relative-images'
+    (Find-Control 'FormatPicker').SetFocus()
+    Wait-For { (Find-Control 'SettingsMessage').Current.Name.Contains('저장 폴더 설정') -or $null -ne (Find-Name (Find-Control 'SettingsMessage') '저장 폴더 설정') } 'localized folder warning'
+    Wait-For { (Folder-Value) -eq $defaultFolder } 'Korean folder fallback'
+    Commit-Folder $testFolder
+    $koreanBlocked = Join-Path $testFolder 'blocked-korean'
+    Set-Folder (Join-Path $koreanBlocked 'images')
+    Start-Monitoring
+    Remove-Item $koreanBlocked -Recurse -Force
+    Set-Content $koreanBlocked 'This file intentionally blocks Korean save testing.'
+    Copy-Image
+    Wait-For { $null -ne (Find-Name (Find-Control 'HistoryList') '저장 실패') } 'Korean save failure'
+    Invoke-Control (Find-Name (Find-Control 'HistoryList') '자세히')
+    Wait-For { $null -ne (Find-Control 'FileDetails') } 'Korean failure dialog'
+    $details = Find-Control 'FileDetails'
+    Wait-For {
+        $texts = $details.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
+        $content = ($texts | ForEach-Object { $_.Current.Name }) -join ' '
+        $content.Contains('기술적 오류 정보') -and $content.Contains('Exception:') -and $content.Contains($koreanBlocked)
+    } 'Korean failure summary with original technical exception/path'
+    Invoke-Control (Find-Name $details '닫기')
+    Stop-Monitoring
+    Clear-KoreanHistory
+    Commit-Folder $testFolder
+    Select-Format 'PNG'
+    Close-App
+    Start-App
+    if ((Find-Control 'StartButton').Current.Name -ne '시작') { throw 'Korean choice did not survive restart.' }
+
+    # A failed language write must remain session-only and preserve the config.
+    $beforeLanguageFailure = Read-Config
+    [IO.File]::SetAttributes($config, [IO.FileAttributes]::ReadOnly)
+    Select-Language 'English' 'Start'
+    Wait-For { $null -ne (Find-Name (Find-Control 'SettingsMessage') 'Language settings') } 'language persistence warning'
+    if ((Read-Config) -ne $beforeLanguageFailure) { throw 'Changing language overwrote a read-only config.' }
+    Close-App
+    [IO.File]::SetAttributes($config, [IO.FileAttributes]::Normal)
+    Start-App
+    if ((Find-Control 'StartButton').Current.Name -ne '시작') { throw 'A failed language write was treated as durable.' }
+    Select-Language 'English' 'Start'
+
+    # Hot-add a language that was absent when the executable was built; missing keys use English.
+    [IO.File]::WriteAllText($customLanguage, '{"languageName":"日本語","strings":{"Start":"開始"}}', [Text.Encoding]::UTF8)
+    Invoke-Id 'ReloadLanguagesButton'
+    Wait-For { (Find-Control 'ReloadLanguagesButton').Current.IsEnabled } 'reloaded new language file'
+    Select-Language '日本語' '開始'
+    if ((Find-Control 'StopButton').Current.Name -ne 'Stop') { throw 'An absent custom translation key did not use English.' }
+    Close-App
+    Start-App
+    if ((Find-Control 'StartButton').Current.Name -ne '開始') { throw 'A custom JSON language did not survive restart.' }
+    [IO.File]::WriteAllText($customLanguage, '{"languageName":"日本語","strings":{"Start":"始める"}}', [Text.Encoding]::UTF8)
+    Invoke-Id 'ReloadLanguagesButton'
+    Wait-For { (Find-Control 'StartButton').Current.Name -eq '始める' -and (Find-Control 'ReloadLanguagesButton').Current.IsEnabled } 'live edited translation'
+    Remove-Item $customLanguage
+    [IO.File]::WriteAllText($invalidLanguage, 'not-json', [Text.Encoding]::UTF8)
+    Invoke-Id 'ReloadLanguagesButton'
+    Wait-For { (Find-Control 'StartButton').Current.Name -eq 'Start' -and (Read-Config).Contains('Language=en') -and (Find-Control 'ReloadLanguagesButton').Current.IsEnabled } 'removed language fallback'
+    Wait-For { $null -ne (Find-Name (Find-Control 'SettingsMessage') 'Language settings') } 'invalid JSON file explanation'
+    Remove-Item $invalidLanguage
+    Invoke-Id 'ReloadLanguagesButton'
+    Wait-For { (Find-Control 'ReloadLanguagesButton').Current.IsEnabled } 'removed invalid fixture'
+    Clear-History
+    Write-Output '::notice::Localization UI passed: Korean controls/accessibility/empty guidance/validation/dialogs, PNG/JPEG/BMP capture, live monitoring/history switches, frozen quality, repeated Clear/file/clipboard retention, localized failure with original diagnostics, restart/read-only language preference, hot-added/edited/removed JSON language and per-key English fallback.'
+
     foreach ($format in @(@('PNG', 'png'), @('JPEG', 'jpg'), @('BMP', 'bmp'))) {
         Set-Folder $testFolder
         Select-Format $format[0]
@@ -537,18 +677,30 @@ try {
     Wait-For {
         (Find-Name $root 'Browse').Current.BoundingRectangle.Top -gt (Find-Control 'FolderPath').Current.BoundingRectangle.Top
     } 'narrow layout reflow'
+    Select-Language '한국어' '시작'
+    Wait-For { (Find-Control 'BrowseButton').Current.BoundingRectangle.Top -gt (Find-Control 'FolderPath').Current.BoundingRectangle.Top } 'Korean narrow layout reflow'
+    Invoke-Id 'ClearHistoryButton'
+    Assert-KoreanEmpty
+    Select-Language 'English' 'Start'
     Write-Output '::notice::Feature smoke passed: PNG/JPEG/BMP pixels, JPEG quality visibility/default/range/edit/freeze, repeated Clear while monitoring and stopped, fresh captures/failures after Clear, file hashes and clipboard retention, preview/history, failure details, maximizing and narrow layout reflow.'
     Close-App
 } catch {
     $trace = $_.ScriptStackTrace -replace '\r?\n', ' | '
     $message = $_.Exception.Message -replace '\r?\n', ' | '
     Write-Output "::error::Feature failure before cleanup: $message / $trace"
+    $process.Refresh()
+    Write-Output "::error::Application exited=$($process.HasExited)"
+    if (-not $process.HasExited -and $null -ne $root) {
+        $controls = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
+        Write-Output (('::error::UI at failure: ') + (($controls | Select-Object -First 120 | ForEach-Object { "$($_.Current.Name) / $($_.Current.AutomationId) / enabled=$($_.Current.IsEnabled)" }) -join ' | '))
+    }
     throw
 } finally {
     if ($null -ne $process -and -not $process.HasExited) {
         Stop-Process -Id $process.Id
         [void]$process.WaitForExit(15000)
     }
+    foreach ($fixture in @($customLanguage, $invalidLanguage)) { if (Test-Path $fixture) { Remove-Item $fixture -Force } }
     if (Test-Path $config) { Remove-Item $config -Force }
     if ($null -ne $originalConfig) { [IO.File]::WriteAllBytes($config, $originalConfig) }
     for ($attempt = 0; $attempt -lt 10 -and (Test-Path $testFolder); $attempt++) {
