@@ -50,14 +50,19 @@ public sealed partial class MainWindow : Window
     private ContentDialog? _detailsDialog;
     private bool _previewBusy;
     private bool _watching;
+    private bool _stopping;
     private bool _closing;
     private bool _allowClose;
     private bool _detailsOpen;
+    private QueueSnapshot? _queueSnapshot;
+    private string? _queueStatusKey;
+    private readonly ObservableCollection<QueueItem> _queueItems = [];
 
     public MainWindow()
     {
         _namingPreferences = new NamingPreferences(_preferences.ConfigPath);
         InitializeComponent();
+        QueueList.ItemsSource = _queueItems;
         _text.LanguageChanged += LanguageChanged;
         LanguageChanged(this, EventArgs.Empty);
         UpdateQualityVisibility();
@@ -120,6 +125,7 @@ public sealed partial class MainWindow : Window
         if (_resultTitle is not null) ResultMessage.Title = _text[_resultTitle];
         if (_resultNotice is not null) ResultMessage.Message = _resultNotice.Render(_text);
         foreach (var item in _history) item.RefreshLanguage();
+        RefreshQueueProgress(force: true);
         UpdateRulePreview();
     }
 
@@ -397,9 +403,11 @@ public sealed partial class MainWindow : Window
 
     private async void Stop_Click(object sender, RoutedEventArgs args)
     {
-        if (_closing) return;
+        if (_closing || _stopping) return;
         var generation = _monitor.History.Generation;
+        _stopping = true;
         StopButton.IsEnabled = false;
+        RefreshQueueProgress(force: true);
         try
         {
             await _monitor.StopAsync();
@@ -408,6 +416,7 @@ public sealed partial class MainWindow : Window
             LanguageChanged(this, EventArgs.Empty);
         }
         catch (Exception exception) { ShowResult("StopFailed", UiMessage.FromException(exception), InfoBarSeverity.Error, generation); }
+        finally { _stopping = false; RefreshQueueProgress(force: true); }
         SetControls();
     }
 
@@ -417,7 +426,7 @@ public sealed partial class MainWindow : Window
         var hasProfile = PresetPicker.SelectedItem is NamingPreset;
         LanguagePicker.IsEnabled = _languageReady && !_languageBusy && !_closing;
         StartButton.IsEnabled = editable && _namingValid;
-        StopButton.IsEnabled = _watching;
+        StopButton.IsEnabled = _watching && !_stopping;
         FolderPath.IsEnabled = editable;
         BrowseButton.IsEnabled = editable;
         FormatPicker.IsEnabled = editable;
@@ -449,6 +458,7 @@ public sealed partial class MainWindow : Window
     {
         if (_closing) return;
         _monitor.History.Clear();
+        RefreshQueueProgress(force: true);
         _previewCancellation?.Cancel();
         _previewAttempt = null;
         _history.Clear();
@@ -509,6 +519,7 @@ public sealed partial class MainWindow : Window
 
     private void RefreshResults(DispatcherQueueTimer sender, object args)
     {
+        RefreshQueueProgress();
         for (var i = 0; i < 32 && _monitor.Results.TryRead(out var result); i++)
         {
             if (!_monitor.History.IsCurrent(result.Generation)) continue;
@@ -526,6 +537,38 @@ public sealed partial class MainWindow : Window
             _ = RefreshPreviewAsync(latest);
         }
     }
+
+    private void RefreshQueueProgress(bool force = false)
+    {
+        var snapshot = _monitor.Progress.Snapshot(_monitor.History.Generation);
+        var status = snapshot.StatusKey(_watching, _statusKey == "Stopped", _stopping);
+        if (!force && snapshot == _queueSnapshot && status == _queueStatusKey) return;
+        var view = _monitor.Progress.View(_monitor.History.Generation);
+        snapshot = view.Snapshot;
+        status = snapshot.StatusKey(_watching, _statusKey == "Stopped", _stopping);
+        _queueSnapshot = snapshot;
+        _queueStatusKey = status;
+        QueueStatus.Text = _text[status];
+        QueueActivity.Text = _text.Format("QueueActivity", snapshot.Reading, snapshot.Waiting, snapshot.Saving);
+        QueueOutcomes.Text = _text.Format("QueueOutcomes", snapshot.Saved, snapshot.Failed);
+        QueueFailures.Text = _text.Format("QueueFailures", snapshot.ReadFailed, snapshot.Rejected, snapshot.SaveFailed);
+        QueueFailures.Visibility = snapshot.Failed > 0 ? Visibility.Visible : Visibility.Collapsed;
+        QueueBusy.IsIndeterminate = snapshot.Active > 0;
+        QueueBusy.Visibility = snapshot.Active > 0 ? Visibility.Visible : Visibility.Collapsed;
+        var ids = view.Jobs.Select(j => j.Id).ToHashSet();
+        for (var i = _queueItems.Count - 1; i >= 0; i--)
+            if (!ids.Contains(_queueItems[i].Job.Id)) _queueItems.RemoveAt(i);
+        for (var i = 0; i < view.Jobs.Length; i++)
+        {
+            var job = view.Jobs[i];
+            if (i < _queueItems.Count && _queueItems[i].Job.Id == job.Id)
+            { if (force || _queueItems[i].Job != job) _queueItems[i].Refresh(job); }
+            else _queueItems.Insert(i, new QueueItem(job, _text));
+        }
+        EmptyQueueVisibility();
+    }
+
+    private void EmptyQueueVisibility() => QueueEmpty.Visibility = _queueItems.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
 
     private async Task RefreshPreviewAsync(SaveResult result)
     {
@@ -571,7 +614,11 @@ public sealed partial class MainWindow : Window
 
     private async void Details_Click(object sender, RoutedEventArgs args)
     {
-        if (_detailsOpen || _presetBusy || _closing || ((FrameworkElement)sender).DataContext is not HistoryItem item) return;
+        if (_detailsOpen || _presetBusy || _closing) return;
+        var result = ((FrameworkElement)sender).DataContext switch
+        { HistoryItem history => history.Result, QueueItem queue => queue.Job.Result, _ => null };
+        if (result is null) return;
+        var item = new HistoryItem(result, _text);
         if (!_monitor.History.IsCurrent(item.Result.Generation)) return;
         var dialog = new ContentDialog
         {
@@ -634,4 +681,29 @@ public sealed class HistoryItem(SaveResult result, UiText text) : INotifyPropert
     public string Status => text[Result.Success ? "Saved" : "Failed"];
     public string Summary => Result.Success ? Result.FilePath : (Result.ErrorMessage ?? new UiMessage("Raw", Result.Error)).Render(text);
     public SolidColorBrush StatusBrush => new(Result.Success ? Microsoft.UI.Colors.ForestGreen : Microsoft.UI.Colors.IndianRed);
+}
+
+public sealed class QueueItem(QueueJob job, UiText text) : INotifyPropertyChanged
+{
+    public event PropertyChangedEventHandler? PropertyChanged;
+    public QueueJob Job { get; private set; } = job;
+    public string Name => Job.Result is { Success: true } result ? Path.GetFileName(result.FilePath) : text.Format("QueueCapture", Job.Id);
+    public string Time => Job.AcceptedAt.ToString("HH:mm:ss.fff", CultureInfo.InvariantCulture);
+    public string Format => Job.Format == ImageFormat.Jpeg ? $"JPEG ({Job.JpegQuality})" : Job.Format == ImageFormat.Bmp ? "BMP" : "PNG";
+    public string Status => text[Job.Stage switch
+    {
+        QueueStage.Reading => "QueueReading", QueueStage.Waiting => "QueueWaiting", QueueStage.Saving => "QueueSaving",
+        QueueStage.Saved => "Saved", QueueStage.ReadFailed => "QueueReadFailed", QueueStage.Rejected => "QueueRejected", _ => "SaveFailed"
+    }];
+    public bool CanShowDetails => Job.Result is not null;
+    public string Summary => Job.Result is not { } result ? "" : result.Success ? result.FilePath
+        : (result.ErrorMessage ?? new UiMessage("Raw", result.Error)).Render(text);
+    public SolidColorBrush StatusBrush => new(Job.Stage == QueueStage.Saved ? Microsoft.UI.Colors.ForestGreen
+        : Job.IsActive ? Microsoft.UI.Colors.SlateGray : Microsoft.UI.Colors.IndianRed);
+    public void Refresh(QueueJob latest)
+    {
+        Job = latest;
+        foreach (var property in new[] { nameof(Name), nameof(Status), nameof(Summary), nameof(StatusBrush), nameof(CanShowDetails) })
+            PropertyChanged?.Invoke(this, new(property));
+    }
 }

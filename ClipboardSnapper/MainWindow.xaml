@@ -42,6 +42,35 @@
                         <Button x:Name="StopButton" Content="{Binding [Stop], Source={StaticResource UiText}}" Click="Stop_Click" IsEnabled="False" AutomationProperties.AutomationId="StopButton" />
                     </StackPanel>
                 </Grid>
+                <StackPanel Spacing="6">
+                    <TextBlock Text="{Binding [QueueTitle], Source={StaticResource UiText}}" Style="{ThemeResource SubtitleTextBlockStyle}" />
+                    <TextBlock x:Name="QueueStatus" TextWrapping="Wrap" AutomationProperties.AutomationId="QueueStatus" AutomationProperties.LiveSetting="Polite" />
+                    <ProgressBar x:Name="QueueBusy" IsIndeterminate="False" Visibility="Collapsed" AutomationProperties.AutomationId="QueueBusy" AutomationProperties.Name="{Binding [QueueProcessing], Source={StaticResource UiText}}" />
+                    <TextBlock x:Name="QueueActivity" TextWrapping="Wrap" AutomationProperties.AutomationId="QueueActivity" />
+                    <TextBlock x:Name="QueueOutcomes" TextWrapping="Wrap" AutomationProperties.AutomationId="QueueOutcomes" />
+                    <TextBlock x:Name="QueueFailures" TextWrapping="Wrap" Visibility="Collapsed" AutomationProperties.AutomationId="QueueFailures" />
+                    <TextBlock x:Name="QueueEmpty" Text="{Binding [QueueEmpty], Source={StaticResource UiText}}" TextWrapping="Wrap" AutomationProperties.AutomationId="QueueEmpty" />
+                    <ListView x:Name="QueueList" MaxHeight="220" SelectionMode="None" HorizontalContentAlignment="Stretch" AutomationProperties.AutomationId="QueueList" AutomationProperties.Name="{Binding [QueueTitle], Source={StaticResource UiText}}">
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="local:QueueItem">
+                                <StackPanel Padding="0,6" Spacing="4">
+                                    <TextBlock Text="{x:Bind Name, Mode=OneWay}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                    <StackPanel Orientation="Horizontal" Spacing="12">
+                                        <TextBlock Text="{x:Bind Time}" />
+                                        <TextBlock Text="{x:Bind Format}" />
+                                    </StackPanel>
+                                    <Grid ColumnSpacing="8">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <TextBlock Text="{x:Bind Status, Mode=OneWay}" Foreground="{x:Bind StatusBrush, Mode=OneWay}" FontWeight="SemiBold" TextWrapping="Wrap" VerticalAlignment="Center" />
+                                        <Button Grid.Column="1" Content="{Binding [Details], Source={StaticResource UiText}}" Click="Details_Click" IsEnabled="{x:Bind CanShowDetails, Mode=OneWay}" Padding="8,2" />
+                                    </Grid>
+                                    <TextBlock Text="{x:Bind Summary, Mode=OneWay}" TextWrapping="Wrap" Opacity="0.75" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                    <TextBlock Text="{Binding [QueueHelp], Source={StaticResource UiText}}" TextWrapping="Wrap" Opacity="0.7" />
+                </StackPanel>
                 <StackPanel Spacing="8">
                     <ComboBox x:Name="LanguagePicker" Header="{Binding [Language], Source={StaticResource UiText}}" DisplayMemberPath="Name" HorizontalAlignment="Stretch" SelectionChanged="Language_SelectionChanged" AutomationProperties.AutomationId="LanguagePicker" AutomationProperties.Name="{Binding [Language], Source={StaticResource UiText}}" />
                     <TextBlock Text="{Binding [LanguageHelp], Source={StaticResource UiText}}" TextWrapping="Wrap" Opacity="0.7" />
