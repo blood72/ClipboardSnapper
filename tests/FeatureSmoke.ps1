@@ -736,8 +736,12 @@ try {
     Invoke-Control (Find-Name $details 'Close')
     Wait-For { $null -eq (Find-Control 'FileDetails') } 'closed history details'
     Invoke-Control (Find-Name (Find-Control 'QueueList') 'Details')
-    Wait-For { $null -ne (Find-Control 'FileDetails') } 'queue failure details'
+    Wait-For { $null -ne (Find-Name (Find-Control 'FileDetails') 'Close') } 'rendered queue failure details and Close control'
     $queueDetails = Find-Control 'FileDetails'
+    $queueDetailTexts = $queueDetails.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+        [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Text))
+    $queueDiagnostic = ($queueDetailTexts | ForEach-Object { $_.Current.Name }) -join ' '
+    if (-not $queueDiagnostic.Contains('Exception:') -or -not $queueDiagnostic.Contains($blocked)) { throw 'Queue details lost the original failure reason/path.' }
     Invoke-Control (Find-Name $queueDetails 'Close')
     Clear-History
     Clear-History
@@ -746,6 +750,12 @@ try {
     Stop-Monitoring
     Clear-History
 
+    Commit-Folder $testFolder
+    Select-Format 'PNG'
+    Start-Monitoring
+    Copy-Image
+    Wait-For { $null -ne (Find-Name (Find-Control 'QueueList') 'Saved') } 'queue row for narrow-window accessibility'
+    Stop-Monitoring
     $window = [System.Windows.Automation.WindowPattern]$root.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern)
     if (-not $window.Current.CanMaximize) { throw 'Maximizing is disabled.' }
     $window.SetWindowVisualState([System.Windows.Automation.WindowVisualState]::Maximized)
@@ -756,6 +766,16 @@ try {
     Wait-For {
         (Find-Name $root 'Browse').Current.BoundingRectangle.Top -gt (Find-Control 'FolderPath').Current.BoundingRectangle.Top
     } 'narrow layout reflow'
+    [void][DesktopNative]::SetWindowPos($process.MainWindowHandle, [IntPtr]::Zero,
+        $display.Work.Left, $display.Work.Top, [Math]::Min(380, $width), [Math]::Min(700, $height), 0x14)
+    Scroll-ToTop
+    Wait-For {
+        $queueButton = Find-Name (Find-Control 'QueueList') 'Details'
+        $null -ne $queueButton -and -not $queueButton.Current.IsOffscreen -and
+            $queueButton.Current.BoundingRectangle.Width -gt 0 -and
+            $queueButton.Current.BoundingRectangle.Right -le (Find-Control 'QueueList').Current.BoundingRectangle.Right
+    } 'queue Details stays within the narrow list viewport'
+    Write-Output '::notice::Queue outcomes/details verified: file and per-image row counts match, failure stage breakdown, original diagnostics, and accessible queue Details at narrow width.'
     Select-Language '한국어' '시작'
     Wait-For { (Find-Control 'BrowseButton').Current.BoundingRectangle.Top -gt (Find-Control 'FolderPath').Current.BoundingRectangle.Top } 'Korean narrow layout reflow'
     Invoke-Id 'ClearHistoryButton'

@@ -58,9 +58,12 @@
                                     <StackPanel Orientation="Horizontal" Spacing="12">
                                         <TextBlock Text="{x:Bind Time}" />
                                         <TextBlock Text="{x:Bind Format}" />
-                                        <TextBlock Text="{x:Bind Status, Mode=OneWay}" Foreground="{x:Bind StatusBrush, Mode=OneWay}" FontWeight="SemiBold" />
-                                        <Button Content="{Binding [Details], Source={StaticResource UiText}}" Click="Details_Click" IsEnabled="{x:Bind CanShowDetails, Mode=OneWay}" Padding="8,2" />
                                     </StackPanel>
+                                    <Grid ColumnSpacing="8">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <TextBlock Text="{x:Bind Status, Mode=OneWay}" Foreground="{x:Bind StatusBrush, Mode=OneWay}" FontWeight="SemiBold" TextWrapping="Wrap" VerticalAlignment="Center" />
+                                        <Button Grid.Column="1" Content="{Binding [Details], Source={StaticResource UiText}}" Click="Details_Click" IsEnabled="{x:Bind CanShowDetails, Mode=OneWay}" Padding="8,2" />
+                                    </Grid>
                                     <TextBlock Text="{x:Bind Summary, Mode=OneWay}" TextWrapping="Wrap" Opacity="0.75" />
                                 </StackPanel>
                             </DataTemplate>
