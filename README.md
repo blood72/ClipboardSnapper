@@ -22,7 +22,7 @@ the English control names.
    quality or filename rules. Save options are fixed for each monitoring run and retained by
    images already accepted, even after Stop.
 5. **Clear History**, next to **Recent files**, clears the current session's list,
-   preview, image captions and success/failure messages. It works while monitoring
+   preview, queue rows/completed totals, image captions and success/failure messages. It works while monitoring
    or stopped and returns the screen to empty guidance. **Saved files are kept**;
    the Windows clipboard and its history are unchanged. Monitoring and pending
    saves continue. Previously accepted images finish saving without returning to

@@ -247,7 +247,7 @@ function Clear-History {
     if (-not $button.Current.HelpText.Contains('Saved files are kept')) { throw 'Clear History does not explain file retention.' }
     Invoke-Control $button
     Assert-EmptyHistory
-    Wait-For { (Find-Control 'QueueOutcomes').Current.Name -eq 'Saved: 0 · Failed: 0' } 'cleared queue outcomes'
+    Wait-For { (Find-Control 'QueueOutcomes').Current.Name -eq 'Saved: 0 · Failed: 0' -and $null -ne (Find-Control 'QueueEmpty') } 'cleared queue outcomes and rows'
     if ((Find-Control 'MonitoringStatus').Current.Name -ne $status) { throw 'Clear changed the monitoring state.' }
     if ([DesktopNative]::GetClipboardSequenceNumber() -ne $sequence) { throw 'Clear modified the Windows clipboard.' }
     $after = @(Get-ChildItem $testFolder -File | ForEach-Object { (Get-FileHash $_.FullName).Hash }) -join ','
@@ -274,7 +274,7 @@ function Clear-KoreanHistory {
     if (-not (Find-Control 'ClearHistoryButton').Current.HelpText.Contains('저장 파일은 유지됩니다')) { throw 'Korean retention help is missing.' }
     Invoke-Id 'ClearHistoryButton'
     Assert-KoreanEmpty
-    Wait-For { (Find-Control 'QueueOutcomes').Current.Name -eq '저장 성공: 0 · 실패: 0' } 'cleared Korean queue outcomes'
+    Wait-For { (Find-Control 'QueueOutcomes').Current.Name -eq '저장 성공: 0 · 실패: 0' -and $null -ne (Find-Control 'QueueEmpty') } 'cleared Korean queue outcomes and rows'
     $after = @(Get-ChildItem $testFolder -File | ForEach-Object { (Get-FileHash $_.FullName).Hash }) -join ','
     if ($before -ne $after -or $sequence -ne [DesktopNative]::GetClipboardSequenceNumber() -or (Find-Control 'MonitoringStatus').Current.Name -ne $state) { throw 'Korean Clear altered files, clipboard or monitoring.' }
 }
@@ -489,7 +489,7 @@ try {
     $beforeDelayed = @(Get-ChildItem $testFolder -Filter '*.png').Count
     [DelayedClipboard]::Start()
     try {
-        Wait-For { (Find-Control 'QueueActivity').Current.Name -eq 'Reading: 1 · Waiting: 0 · Saving: 0' -and $null -ne (Find-Control 'QueueBusy') } 'real delayed clipboard read and busy indicator'
+        Wait-For { (Find-Control 'QueueActivity').Current.Name -eq 'Reading: 1 · Waiting: 0 · Saving: 0' -and $null -ne (Find-Control 'QueueBusy') -and $null -ne (Find-Name (Find-Control 'QueueList') 'Reading') } 'real delayed clipboard read, job row and busy indicator'
         Stop-Monitoring
         Wait-For { (Find-Control 'QueueStatus').Current.Name -eq 'Finishing accepted work' } 'stopped queue draining'
         Clear-History
@@ -502,7 +502,7 @@ try {
     } finally { [DelayedClipboard]::Complete(); [DelayedClipboard]::Stop() }
     Start-Monitoring
     Copy-Image
-    Wait-For { (Find-Control 'QueueOutcomes').Current.Name -eq 'Saved: 1 · Failed: 0' -and $null -ne (Find-Control 'PreviewImage') } 'fresh capture after clearing/draining'
+    Wait-For { (Find-Control 'QueueOutcomes').Current.Name -eq 'Saved: 1 · Failed: 0' -and $null -ne (Find-Control 'PreviewImage') -and $null -ne (Find-Name (Find-Control 'QueueList') 'Saved') } 'fresh capture and completed queue row after clearing/draining'
     Stop-Monitoring
     $beforeText = (Find-Control 'QueueOutcomes').Current.Name
     Start-Monitoring
@@ -542,6 +542,7 @@ try {
         Start-Monitoring
         Copy-Image
         Wait-For { @(Get-ChildItem $testFolder -Filter $pattern).Count -gt $before -and $null -ne (Find-Name (Find-Control 'HistoryList') '저장 성공') -and $null -ne (Find-Control 'PreviewImage') } "Korean $($format[0]) save/preview/history"
+        Wait-For { $null -ne (Find-Name (Find-Control 'QueueList') '저장 성공') } 'localized per-image queue completion'
         if ($format[0] -eq 'JPEG') {
             if ((Find-Control 'JpegQuality').Current.IsEnabled -or -not (Find-Control 'LanguagePicker').Current.IsEnabled) { throw 'Language choice must stay available while save options are frozen.' }
             $filesBeforeSwitch = @(Get-ChildItem $testFolder -File | ForEach-Object { (Get-FileHash $_.FullName).Hash }) -join ','
@@ -706,6 +707,7 @@ try {
         $text.Contains('Exception:') -and $text.Contains($blocked)
     } 'rendered failure details containing the exception and failed folder'
     Wait-For { (Find-Control 'QueueOutcomes').Current.Name -eq 'Saved: 0 · Failed: 1' -and (Find-Control 'QueueFailures').Current.Name -eq 'Read failures: 0 · Rejected: 0 · Save failures: 1' } 'save failure queue breakdown'
+    Wait-For { $null -ne (Find-Name (Find-Control 'QueueList') 'Save failed') } 'per-image save failure row'
     $texts = $details.FindAll([System.Windows.Automation.TreeScope]::Descendants,
         [System.Windows.Automation.PropertyCondition]::new(
             [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
@@ -714,6 +716,11 @@ try {
         throw 'The failure details do not expose the exception reason.'
     }
     Invoke-Control (Find-Name $details 'Close')
+    Wait-For { $null -eq (Find-Control 'FileDetails') } 'closed history details'
+    Invoke-Control (Find-Name (Find-Control 'QueueList') 'Details')
+    Wait-For { $null -ne (Find-Control 'FileDetails') } 'queue failure details'
+    $queueDetails = Find-Control 'FileDetails'
+    Invoke-Control (Find-Name $queueDetails 'Close')
     Clear-History
     Clear-History
     Copy-Image
