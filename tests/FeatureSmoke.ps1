@@ -522,7 +522,7 @@ try {
     }
     Set-Folder 'relative-images'
     (Find-Control 'FormatPicker').SetFocus()
-    Wait-For { (Find-Control 'SettingsMessage').Current.Name.Contains('저장 폴더 설정') -or $null -ne (Find-Name (Find-Control 'SettingsMessage') '저장 폴더 설정') } 'localized folder warning'
+    Wait-For { $null -ne (Find-Name (Find-Control 'SettingsMessage') '저장 폴더 설정') } 'rendered localized folder warning'
     Wait-For { (Folder-Value) -eq $defaultFolder } 'Korean folder fallback'
     Commit-Folder $testFolder
     $koreanBlocked = Join-Path $testFolder 'blocked-korean'
@@ -561,28 +561,40 @@ try {
     if ((Find-Control 'StartButton').Current.Name -ne '시작') { throw 'A failed language write was treated as durable.' }
     Select-Language 'English' 'Start'
 
-    # Hot-add a language that was absent when the executable was built; missing keys use English.
+    # Translation files are discovered on startup, without rebuilding the executable.
+    if ($null -ne (Find-Control 'ReloadLanguagesButton')) { throw 'The language-only reload button remains visible.' }
     [IO.File]::WriteAllText($customLanguage, '{"languageName":"日本語","strings":{"Start":"開始"}}', [Text.Encoding]::UTF8)
-    Invoke-Id 'ReloadLanguagesButton'
-    Wait-For { (Find-Control 'ReloadLanguagesButton').Current.IsEnabled } 'reloaded new language file'
+    if ((Find-Control 'StartButton').Current.Name -ne 'Start') { throw 'Adding a file changed the running language.' }
+    Close-App
+    Start-App
     Select-Language '日本語' '開始'
     if ((Find-Control 'StopButton').Current.Name -ne 'Stop') { throw 'An absent custom translation key did not use English.' }
     Close-App
     Start-App
     if ((Find-Control 'StartButton').Current.Name -ne '開始') { throw 'A custom JSON language did not survive restart.' }
     [IO.File]::WriteAllText($customLanguage, '{"languageName":"日本語","strings":{"Start":"始める"}}', [Text.Encoding]::UTF8)
-    Invoke-Id 'ReloadLanguagesButton'
-    Wait-For { (Find-Control 'StartButton').Current.Name -eq '始める' -and (Find-Control 'ReloadLanguagesButton').Current.IsEnabled } 'live edited translation'
+    if ((Find-Control 'StartButton').Current.Name -ne '開始') { throw 'Editing a file changed the running language.' }
+    Close-App
+    Start-App
+    if ((Find-Control 'StartButton').Current.Name -ne '始める') { throw 'Startup did not load edited translation text.' }
     Remove-Item $customLanguage
     [IO.File]::WriteAllText($invalidLanguage, 'not-json', [Text.Encoding]::UTF8)
-    Invoke-Id 'ReloadLanguagesButton'
-    Wait-For { (Find-Control 'StartButton').Current.Name -eq 'Start' -and (Read-Config).Contains('Language=en') -and (Find-Control 'ReloadLanguagesButton').Current.IsEnabled } 'removed language fallback'
+    if ((Find-Control 'StartButton').Current.Name -ne '始める') { throw 'Removing a file changed the running language.' }
+    Close-App
+    Start-App
+    if ((Find-Control 'StartButton').Current.Name -ne 'Start' -or -not (Read-Config).Contains('Language=ja')) {
+        throw 'Unavailable language fallback failed or rewrote the saved preference.'
+    }
     Wait-For { $null -ne (Find-Name (Find-Control 'SettingsMessage') 'Language settings') } 'invalid JSON file explanation'
+    Select-Language '한국어' '시작'
+    Select-Language 'English' 'Start'
+    Wait-For { (Read-Config).Contains('Language=en') } 'explicit English preference after fallback'
     Remove-Item $invalidLanguage
-    Invoke-Id 'ReloadLanguagesButton'
-    Wait-For { (Find-Control 'ReloadLanguagesButton').Current.IsEnabled } 'removed invalid fixture'
+    Close-App
+    Start-App
+    if ($null -ne (Find-Control 'ReloadLanguagesButton')) { throw 'The language-only reload button reappeared.' }
     Clear-History
-    Write-Output '::notice::Localization UI passed: Korean controls/accessibility/empty guidance/validation/dialogs, PNG/JPEG/BMP capture, live monitoring/history switches, frozen quality, repeated Clear/file/clipboard retention, localized failure with original diagnostics, restart/read-only language preference, hot-added/edited/removed JSON language and per-key English fallback.'
+    Write-Output '::notice::Localization UI passed: Korean controls/accessibility/empty guidance/validation/dialogs, PNG/JPEG/BMP capture, live monitoring/history switches, frozen quality, repeated Clear/file/clipboard retention, localized failure with original diagnostics, restart/read-only language preference, startup-added/edited/removed JSON language and per-key English fallback.'
 
     foreach ($format in @(@('PNG', 'png'), @('JPEG', 'jpg'), @('BMP', 'bmp'))) {
         Set-Folder $testFolder

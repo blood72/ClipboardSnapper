@@ -63,13 +63,16 @@ exception information. Repository documentation remains English.
 
 Translations are editable UTF-8 files in **`lang` beside `ClipboardSnapper.exe`**.
 The publish artifact includes `lang/en.json` and `lang/ko.json`. Add another
-language-tag JSON file, such as `lang/ja.json`, and press **Reload languages**;
-no app rebuild or restart is required. Editing a file and reloading also updates
-an already selected language. Removing or invalidating the selected file returns
-the app to English and reports the change. Missing translation keys use the
+language-tag JSON file, such as `lang/ja.json`, then restart the app to select it;
+no app rebuild is required. Translation files are read at startup. Added, edited,
+removed or invalidated files take effect on the next launch; an unavailable saved
+language falls back to English with a warning. Missing translation keys use the
 current English file, then the embedded English baseline. Malformed JSON, duplicate
 keys, invalid language tags and incompatible placeholders are rejected per file;
 other language files remain usable. Embedded English handles absent external files.
+
+A unified [Reload settings feature](https://github.com/blood72/ClipboardSnapper/issues/19)
+is tracked in the 1.0.0 backlog; the current app has no language-only reload command.
 
 See [Translation file guide](docs/translations.md) for the format and examples.
 Until formal 1.0.0, migrations between snapshot configuration formats are not

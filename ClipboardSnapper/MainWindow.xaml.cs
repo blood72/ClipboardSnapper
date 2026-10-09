@@ -153,31 +153,6 @@ public sealed partial class MainWindow : Window
         finally { _languageBusy = false; if (!_closing) SetControls(); }
     }
 
-    private async void ReloadLanguages_Click(object sender, RoutedEventArgs args)
-    {
-        if (!_languageReady || _languageBusy || _closing) return;
-        _languageBusy = true;
-        SetControls();
-        var generation = _monitor.History.Generation;
-        try
-        {
-            var previous = _text.Language.Code;
-            var catalog = await Task.Run(() => LanguageCatalog.Load(Path.Combine(AppContext.BaseDirectory, "lang")));
-            if (_closing) return;
-            _text.ReplaceCatalog(catalog);
-            ApplyLanguagePicker(_text.Language.Code);
-            var notices = catalog.Notices.ToList();
-            if (previous != _text.Language.Code)
-            {
-                notices.Add(new("LanguageUnavailable", previous));
-                var saved = await SaveLanguageAsync(_text.Language.Code);
-                if (saved.Notice is not null) notices.Add(saved.Notice);
-            }
-            ShowLanguageNotices(notices, generation);
-        }
-        finally { _languageBusy = false; if (!_closing) SetControls(); }
-    }
-
     private void ShowLanguageNotices(IReadOnlyList<UiMessage> notices, long generation)
     {
         if (!_monitor.History.IsCurrent(generation)) return;
@@ -441,7 +416,6 @@ public sealed partial class MainWindow : Window
         var editable = _folderReady && _namingReady && !_watching && !_starting && !_presetBusy;
         var hasProfile = PresetPicker.SelectedItem is NamingPreset;
         LanguagePicker.IsEnabled = _languageReady && !_languageBusy && !_closing;
-        ReloadLanguagesButton.IsEnabled = _languageReady && !_languageBusy && !_closing;
         StartButton.IsEnabled = editable && _namingValid;
         StopButton.IsEnabled = _watching;
         FolderPath.IsEnabled = editable;
