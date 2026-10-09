@@ -44,7 +44,6 @@
                 </Grid>
                 <StackPanel Spacing="8">
                     <ComboBox x:Name="LanguagePicker" Header="{Binding [Language], Source={StaticResource UiText}}" DisplayMemberPath="Name" HorizontalAlignment="Stretch" SelectionChanged="Language_SelectionChanged" AutomationProperties.AutomationId="LanguagePicker" AutomationProperties.Name="{Binding [Language], Source={StaticResource UiText}}" />
-                    <Button x:Name="ReloadLanguagesButton" Content="{Binding [ReloadLanguages], Source={StaticResource UiText}}" Click="ReloadLanguages_Click" AutomationProperties.AutomationId="ReloadLanguagesButton" />
                     <TextBlock Text="{Binding [LanguageHelp], Source={StaticResource UiText}}" TextWrapping="Wrap" Opacity="0.7" />
                 </StackPanel>
                 <StackPanel Spacing="12">
