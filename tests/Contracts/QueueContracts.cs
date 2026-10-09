@@ -44,7 +44,7 @@ static class QueueContracts
         var reading = Read();
         var before = progress.View(history.Generation);
         Check.That(before.Snapshot is { Reading: 1, Waiting: 4, Saving: 1, Rejected: 1 } && before.Snapshot.Active == 6 &&
-            before.Snapshot.StatusKey(true, false) == "QueueProcessing" && before.Snapshot.StatusKey(false, true) == "QueueDraining",
+            before.Snapshot.StatusKey(true, false) == "QueueProcessing" && before.Snapshot.StatusKey(false, true) == "QueueDraining" && before.Snapshot.StatusKey(true, false, true) == "QueueStopping",
             "Waiting, active work, queue rejection or post-Stop draining is incorrect.");
         Check.That(before.Jobs.Count(j => j.Stage == QueueStage.Waiting) == 4 && before.Jobs.Single(j => j.Id == first) is
             { Stage: QueueStage.Saving, Format: ImageFormat.Jpeg, JpegQuality: 42 } &&

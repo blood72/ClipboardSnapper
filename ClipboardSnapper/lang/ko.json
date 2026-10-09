@@ -140,6 +140,7 @@
     "QueueWaiting": "저장 대기",
     "QueueSaving": "저장 중",
     "QueueReadFailed": "읽기 실패",
-    "QueueRejected": "접수 거절"
+    "QueueRejected": "접수 거절",
+    "QueueStopping": "감시 중지 요청 중"
   }
 }

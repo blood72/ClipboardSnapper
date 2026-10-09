@@ -54,6 +54,9 @@ indeterminate indicator appears while any work is active; it is not a percentage
 or an estimate of remaining time. When monitoring is idle it says **Waiting for
 new images**. After **Stop**, **Finishing accepted work** remains visible until
 all accepted reads and saves finish, then changes to **All accepted work finished**.
+If a native clipboard provider is blocking acquisition, **Stopping monitoring**
+shows that Stop was requested but is waiting for the capture thread to respond;
+it does not claim monitoring has already stopped.
 
 **Saved / Failed** totals belong to the current history generation: they start at
 zero on launch, remain across Start/Stop, and reset on **Clear History**. Failure

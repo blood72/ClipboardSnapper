@@ -490,13 +490,13 @@ try {
     [DelayedClipboard]::Start()
     try {
         Wait-For { (Find-Control 'QueueActivity').Current.Name -eq 'Reading: 1 · Waiting: 0 · Saving: 0' -and $null -ne (Find-Control 'QueueBusy') -and $null -ne (Find-Name (Find-Control 'QueueList') 'Reading') } 'real delayed clipboard read, job row and busy indicator'
-        Stop-Monitoring
-        Wait-For { (Find-Control 'QueueStatus').Current.Name -eq 'Finishing accepted work' } 'stopped queue draining'
+        Invoke-Id 'StopButton'
+        Wait-For { (Find-Control 'QueueStatus').Current.Name -eq 'Stopping monitoring' } 'Stop requested while the native clipboard provider is blocked'
         Clear-History
         Clear-History
         if ((Find-Control 'QueueActivity').Current.Name -ne 'Reading: 1 · Waiting: 0 · Saving: 0') { throw 'Clear changed the active queue work.' }
         [DelayedClipboard]::Complete()
-        Wait-For { @(Get-ChildItem $testFolder -Filter '*.png').Count -gt $beforeDelayed -and (Find-Control 'QueueStatus').Current.Name -eq 'All accepted work finished' } 'pre-clear image saved and post-Stop draining finished'
+        Wait-For { @(Get-ChildItem $testFolder -Filter '*.png').Count -gt $beforeDelayed -and (Find-Control 'QueueStatus').Current.Name -eq 'All accepted work finished' -and (Find-Control 'MonitoringStatus').Current.Name -eq 'Stopped' } 'pre-clear image saved and post-Stop draining finished'
         if ((Find-Control 'QueueOutcomes').Current.Name -ne 'Saved: 0 · Failed: 0' -or $null -ne (Find-Control 'QueueBusy')) { throw 'Late completion restored counters or the busy indicator.' }
         Assert-EmptyHistory
     } finally { [DelayedClipboard]::Complete(); [DelayedClipboard]::Stop() }
@@ -513,7 +513,7 @@ try {
     Clear-History
     Close-App
     Start-App
-    Write-Output '::notice::Queue UI passed: real gated clipboard read, busy indicator, Stop/draining, repeated Clear with pending work, old result suppression with file preservation, new capture, ignored text and restart totals.'
+    Write-Output '::notice::Queue UI passed: real gated clipboard read/job row, busy indicator, pending Stop/draining, repeated Clear with pending work, old result suppression with file preservation, new capture, ignored text and restart totals.'
 
     # Verify real Korean UI, live state/history translation and unchanged collection/saving.
     Select-Language '한국어' '시작'

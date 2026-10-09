@@ -140,6 +140,7 @@
     "QueueWaiting": "Waiting",
     "QueueSaving": "Saving",
     "QueueReadFailed": "Read failed",
-    "QueueRejected": "Rejected"
+    "QueueRejected": "Rejected",
+    "QueueStopping": "Stopping monitoring"
   }
 }

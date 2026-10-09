@@ -50,6 +50,7 @@ public sealed partial class MainWindow : Window
     private ContentDialog? _detailsDialog;
     private bool _previewBusy;
     private bool _watching;
+    private bool _stopping;
     private bool _closing;
     private bool _allowClose;
     private bool _detailsOpen;
@@ -402,9 +403,11 @@ public sealed partial class MainWindow : Window
 
     private async void Stop_Click(object sender, RoutedEventArgs args)
     {
-        if (_closing) return;
+        if (_closing || _stopping) return;
         var generation = _monitor.History.Generation;
+        _stopping = true;
         StopButton.IsEnabled = false;
+        RefreshQueueProgress(force: true);
         try
         {
             await _monitor.StopAsync();
@@ -413,6 +416,7 @@ public sealed partial class MainWindow : Window
             LanguageChanged(this, EventArgs.Empty);
         }
         catch (Exception exception) { ShowResult("StopFailed", UiMessage.FromException(exception), InfoBarSeverity.Error, generation); }
+        finally { _stopping = false; RefreshQueueProgress(force: true); }
         SetControls();
     }
 
@@ -422,7 +426,7 @@ public sealed partial class MainWindow : Window
         var hasProfile = PresetPicker.SelectedItem is NamingPreset;
         LanguagePicker.IsEnabled = _languageReady && !_languageBusy && !_closing;
         StartButton.IsEnabled = editable && _namingValid;
-        StopButton.IsEnabled = _watching;
+        StopButton.IsEnabled = _watching && !_stopping;
         FolderPath.IsEnabled = editable;
         BrowseButton.IsEnabled = editable;
         FormatPicker.IsEnabled = editable;
@@ -537,11 +541,11 @@ public sealed partial class MainWindow : Window
     private void RefreshQueueProgress(bool force = false)
     {
         var snapshot = _monitor.Progress.Snapshot(_monitor.History.Generation);
-        var status = snapshot.StatusKey(_watching, _statusKey == "Stopped");
+        var status = snapshot.StatusKey(_watching, _statusKey == "Stopped", _stopping);
         if (!force && snapshot == _queueSnapshot && status == _queueStatusKey) return;
         var view = _monitor.Progress.View(_monitor.History.Generation);
         snapshot = view.Snapshot;
-        status = snapshot.StatusKey(_watching, _statusKey == "Stopped");
+        status = snapshot.StatusKey(_watching, _statusKey == "Stopped", _stopping);
         _queueSnapshot = snapshot;
         _queueStatusKey = status;
         QueueStatus.Text = _text[status];

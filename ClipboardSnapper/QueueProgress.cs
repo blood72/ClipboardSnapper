@@ -12,7 +12,7 @@ public readonly record struct QueueSnapshot(int Reading, int Waiting, int Saving
 {
     public int Active => Reading + Waiting + Saving;
     public long Failed => ReadFailed + Rejected + SaveFailed;
-    public string StatusKey(bool monitoring, bool stopped) => Active > 0
+    public string StatusKey(bool monitoring, bool stopped, bool stopping = false) => stopping ? "QueueStopping" : Active > 0
         ? monitoring ? "QueueProcessing" : "QueueDraining"
         : monitoring ? "QueueListening" : stopped ? "QueueFinished" : "QueueIdle";
 }
