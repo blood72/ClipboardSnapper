@@ -40,6 +40,36 @@ JPEG quality is passed to `BitmapEncoder` as the `ImageQuality` option, dividing
 the integer slider value by 100 to produce a single-precision value from 0.01 to
 1.0. It is not applied to PNG or BMP.
 
+## Save queue and processing status
+
+**Save queue** shows **Reading** (clipboard acquisition/checks), **Waiting**
+(images queued for the writer), and **Saving** (encoding and writing). An
+indeterminate indicator appears while any work is active; it is not a percentage
+or an estimate of remaining time. When monitoring is idle it says **Waiting for
+new images**. After **Stop**, **Finishing accepted work** remains visible until
+all accepted reads and saves finish, then changes to **All accepted work finished**.
+
+**Saved / Failed** totals belong to the current history generation: they start at
+zero on launch, remain across Start/Stop, and reset on **Clear History**. Failure
+counts distinguish read errors, captures rejected by the existing busy limits,
+and save errors. Text and other non-image clipboard content do not count as
+successes or failures. Failure reasons remain in **Recent files → Details**.
+
+Clearing leaves Reading/Waiting/Saving unchanged and lets those jobs finish.
+Their older results neither repopulate history/preview nor increase the new
+totals; captures accepted after Clear count normally. Stored images and Windows
+clipboard contents are unchanged. The recent list is limited to 100 rows, so its
+size need not equal the cumulative totals. Language changes translate the queue
+without resetting work or totals. Queue statistics are session-only.
+
+Capture and writer threads update only small counters under a brief lock; they
+never wait for UI rendering or invoke UI callbacks. The existing 250 ms display
+timer samples a consistent snapshot and skips unchanged values. Short-lived
+stages may finish between display updates. The display does not change existing
+read concurrency, queue capacity, rejection or accepted-save policies. Queue
+cancellation/reordering/retry controls are outside this feature; final visual
+placement remains part of the later UI review (#2).
+
 ## Language and editable translations
 
 On first launch, the app follows the Windows UI language. It tries an available
@@ -362,10 +392,11 @@ dotnet run --project tests/Contracts/Contracts.csproj --framework net10.0 --conf
 dotnet run --project tests/Contracts/Contracts.csproj --framework net10.0-windows10.0.26100.0 --configuration Release --no-restore
 ```
 
-These contract tests link the production session/encoding source; they do not
+These contract tests link the production session/queue/encoding source; they do not
 require an additional test framework. Delayed operations use explicit completion
 gates rather than timing assumptions. The UI Automation test drives the published
-application; delayed preview completion is covered by the contract tests rather
+application, including a real delayed clipboard owner for Stop/draining and
+Clear during acquisition; delayed preview completion is covered by the contract tests rather
 than a claim of visual observation during a decode.
 
 No Release publishing, Store registration, signing, or automatic deployment is
