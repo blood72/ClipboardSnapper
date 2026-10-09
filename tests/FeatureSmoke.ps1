@@ -501,8 +501,18 @@ try {
         Assert-EmptyHistory
     } finally { [DelayedClipboard]::Complete(); [DelayedClipboard]::Stop() }
     Start-Monitoring
+    $beforeFresh = @(Get-ChildItem $testFolder -Filter '*.png').Count
     Copy-Image
-    Wait-For { (Find-Control 'QueueOutcomes').Current.Name -eq 'Saved: 1 · Failed: 0' -and $null -ne (Find-Control 'PreviewImage') -and $null -ne (Find-Name (Find-Control 'QueueList') 'Saved') } 'fresh capture and completed queue row after clearing/draining'
+    # SetImage/clipboard flush may produce multiple distinct Windows change notifications.
+    # Compare actual files, rows and totals rather than assuming one notification per API call.
+    Wait-For {
+        $totals = (Find-Control 'QueueOutcomes').Current.Name
+        $savedRows = (Find-Control 'QueueList').FindAll([System.Windows.Automation.TreeScope]::Descendants,
+            [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty, 'Saved')).Count
+        $newFiles = @(Get-ChildItem $testFolder -Filter '*.png').Count - $beforeFresh
+        $newFiles -gt 0 -and $totals -eq "Saved: $newFiles · Failed: 0" -and $savedRows -eq $newFiles -and
+            (Find-Control 'QueueActivity').Current.Name -eq 'Reading: 0 · Waiting: 0 · Saving: 0' -and $null -ne (Find-Control 'PreviewImage')
+    } 'fresh captures with matching saved files, per-image rows and totals after clearing/draining'
     Stop-Monitoring
     $beforeText = (Find-Control 'QueueOutcomes').Current.Name
     Start-Monitoring
@@ -706,7 +716,15 @@ try {
         $text = ($content | ForEach-Object { $_.Current.Name }) -join ' '
         $text.Contains('Exception:') -and $text.Contains($blocked)
     } 'rendered failure details containing the exception and failed folder'
-    Wait-For { (Find-Control 'QueueOutcomes').Current.Name -eq 'Saved: 0 · Failed: 1' -and (Find-Control 'QueueFailures').Current.Name -eq 'Read failures: 0 · Rejected: 0 · Save failures: 1' } 'save failure queue breakdown'
+    Wait-For {
+        $totals = (Find-Control 'QueueOutcomes').Current.Name
+        $failure = [regex]::Match($totals, '^Saved: 0 · Failed: ([1-9][0-9]*)$')
+        $failedRows = (Find-Control 'QueueList').FindAll([System.Windows.Automation.TreeScope]::Descendants,
+            [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty, 'Save failed')).Count
+        $failure.Success -and $failedRows -eq [int]$failure.Groups[1].Value -and
+            (Find-Control 'QueueFailures').Current.Name -eq "Read failures: 0 · Rejected: 0 · Save failures: $failedRows" -and
+            (Find-Control 'QueueActivity').Current.Name -eq 'Reading: 0 · Waiting: 0 · Saving: 0'
+    } 'save failure rows, totals and stage breakdown agree'
     Wait-For { $null -ne (Find-Name (Find-Control 'QueueList') 'Save failed') } 'per-image save failure row'
     $texts = $details.FindAll([System.Windows.Automation.TreeScope]::Descendants,
         [System.Windows.Automation.PropertyCondition]::new(
