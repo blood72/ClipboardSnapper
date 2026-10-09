@@ -70,13 +70,15 @@ static class LanguageContracts
             // A new, partial translation becomes usable without recompilation; missing keys fall back independently.
             await File.WriteAllTextAsync(Path.Combine(root, "ja.json"), JsonSerializer.Serialize(new { languageName = "日本語", strings = new { Start = "開始" } }));
             var custom = LanguageCatalog.Load(root);
-            text.ReplaceCatalog(custom);
+            text = new UiText(custom);
             text.Select("ja");
             Check.That(text["Start"] == "開始" && text["Stop"] == "Stop" && custom.Resolve(null, "ja-JP") == "ja",
                 "Adding an unknown-to-the-app language or per-key English fallback failed.");
             await File.WriteAllTextAsync(Path.Combine(root, "ja.json"), JsonSerializer.Serialize(new { languageName = "日本語", strings = new { Start = "始める" } }));
-            text.ReplaceCatalog(LanguageCatalog.Load(root));
-            Check.That(text.Language.Code == "ja" && text["Start"] == "始める", "Reload did not replace edited translation text.");
+            Check.That(text["Start"] == "開始", "Editing a file changed the running catalog.");
+            text = new UiText(LanguageCatalog.Load(root));
+            text.Select(text.Catalog.Resolve("ja", "en"));
+            Check.That(text.Language.Code == "ja" && text["Start"] == "始める", "Startup did not load edited translation text.");
             await File.WriteAllTextAsync(Path.Combine(root, "ko.json"), "not-json");
             await File.WriteAllTextAsync(Path.Combine(root, "de.json"), "{\"languageName\":\"Deutsch\",\"strings\":{\"Example\":\"{5}\"}}");
             await File.WriteAllTextAsync(Path.Combine(root, "fr.json"), "{\"languageName\":\"Français\",\"strings\":{\"Start\":\"A\",\"Start\":\"B\"}}");
@@ -84,14 +86,17 @@ static class LanguageContracts
             Check.That(custom.Notices.Count == 3 && custom.Languages.Count == 2 && custom.Languages.All(l => l.Code is "en" or "ja"),
                 "Malformed JSON, placeholder injection or duplicate keys were not isolated from usable languages.");
             await File.WriteAllTextAsync(Path.Combine(root, "en.json"), "{\"languageName\":\"English\",\"strings\":{\"Stop\":\"Edited English Stop\"}}");
-            text.ReplaceCatalog(LanguageCatalog.Load(root));
+            text = new UiText(LanguageCatalog.Load(root));
+            text.Select("ja");
             Check.That(text["Stop"] == "Edited English Stop", "Missing custom keys did not use the edited external English pack.");
             File.Delete(Path.Combine(root, "en.json"));
             File.Delete(Path.Combine(root, "ja.json"));
-            text.ReplaceCatalog(LanguageCatalog.Load(root));
+            Check.That(text.Language.Code == "ja" && text["Start"] == "始める", "Deleting a file changed the running catalog.");
+            text = new UiText(LanguageCatalog.Load(root));
+            text.Select(text.Catalog.Resolve("ja", "en"));
             Check.That(text.Language.Code == "en" && text["Start"] == "Start", "Removing an active translation did not safely fall back to English.");
             Check.That(LanguageCatalog.Load(Path.Combine(root, "missing")).Languages.Single().Code == "en", "Missing files broke embedded English fallback.");
-            Console.WriteLine("::notice::Language contracts passed: complete Korean keys, Windows/explicit/fallback policy, live notifications, structured errors with original diagnostics, immutable filename rules, concurrent INI persistence, malformed/read-only settings, hot-added/edited/removed JSON languages, per-key fallback and isolated invalid files.");
+            Console.WriteLine("::notice::Language contracts passed: complete Korean keys, Windows/explicit/fallback policy, live notifications, structured errors with original diagnostics, immutable filename rules, concurrent INI persistence, malformed/read-only settings, startup-added/edited/removed JSON languages, per-key fallback and isolated invalid files.");
         }
         finally { Directory.Delete(root, true); }
     }
