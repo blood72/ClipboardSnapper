@@ -42,7 +42,13 @@ the integer slider value by 100 to produce a single-precision value from 0.01 to
 
 ## Save queue and processing status
 
-**Save queue** shows **Reading** (clipboard acquisition/checks), **Waiting**
+**Save queue** lists each accepted capture with its acceptance time, frozen format,
+and Reading → Waiting → Saving → Saved/failure state. Completed rows keep the
+filename or failure explanation; **Details** exposes the full path and original
+diagnostics. A capture number identifies a job before its filename is available.
+The view retains up to 100 completed jobs plus all active jobs.
+
+It also shows **Reading** (clipboard acquisition/checks), **Waiting**
 (images queued for the writer), and **Saving** (encoding and writing). An
 indeterminate indicator appears while any work is active; it is not a percentage
 or an estimate of remaining time. When monitoring is idle it says **Waiting for
@@ -56,13 +62,13 @@ and save errors. Text and other non-image clipboard content do not count as
 successes or failures. Failure reasons remain in **Recent files → Details**.
 
 Clearing leaves Reading/Waiting/Saving unchanged and lets those jobs finish.
-Their older results neither repopulate history/preview nor increase the new
-totals; captures accepted after Clear count normally. Stored images and Windows
+The cleared queue rows are hidden, including older active captures. Their older
+results neither repopulate queue/history/preview nor increase the new totals; captures accepted after Clear count normally. Stored images and Windows
 clipboard contents are unchanged. The recent list is limited to 100 rows, so its
 size need not equal the cumulative totals. Language changes translate the queue
 without resetting work or totals. Queue statistics are session-only.
 
-Capture and writer threads update only small counters under a brief lock; they
+Capture and writer threads update only bounded job metadata and counters under a brief lock; they
 never wait for UI rendering or invoke UI callbacks. The existing 250 ms display
 timer samples a consistent snapshot and skips unchanged values. Short-lived
 stages may finish between display updates. The display does not change existing

@@ -133,6 +133,13 @@
     "QueueActivity": "Reading: {0} · Waiting: {1} · Saving: {2}",
     "QueueOutcomes": "Saved: {0} · Failed: {1}",
     "QueueFailures": "Read failures: {0} · Rejected: {1} · Save failures: {2}",
-    "QueueHelp": "Counts reflect current work. Completed totals are since the last Clear History. Clearing keeps pending work; its older outcomes stay out of the new totals. Failure reasons are in Recent files → Details."
+    "QueueHelp": "Counts reflect current work. Completed totals are since the last Clear History. Clearing keeps pending work; its older outcomes stay out of the new totals. Failure reasons are in Recent files → Details.",
+    "QueueEmpty": "No images in this queue history yet. Start monitoring, then copy an image.",
+    "QueueCapture": "Capture #{0}",
+    "QueueReading": "Reading",
+    "QueueWaiting": "Waiting",
+    "QueueSaving": "Saving",
+    "QueueReadFailed": "Read failed",
+    "QueueRejected": "Rejected"
   }
 }

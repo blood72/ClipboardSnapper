@@ -12,6 +12,7 @@ public sealed record CapturedImage(byte[] Bytes, SaveOptions Options, long Gener
 {
     public DateTimeOffset AcceptedAt { get; init; } = DateTimeOffset.Now;
     public long CaptureIndex { get; init; }
+    public long ProgressId { get; init; }
 }
 public sealed record SaveResult(string FilePath, DateTimeOffset Time, bool Success,
     string Error = "", uint Width = 0, uint Height = 0, long Generation = 0)
