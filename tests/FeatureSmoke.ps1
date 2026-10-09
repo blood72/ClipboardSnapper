@@ -750,12 +750,6 @@ try {
     Stop-Monitoring
     Clear-History
 
-    Commit-Folder $testFolder
-    Select-Format 'PNG'
-    Start-Monitoring
-    Copy-Image
-    Wait-For { $null -ne (Find-Name (Find-Control 'QueueList') 'Saved') } 'queue row for narrow-window accessibility'
-    Stop-Monitoring
     $window = [System.Windows.Automation.WindowPattern]$root.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern)
     if (-not $window.Current.CanMaximize) { throw 'Maximizing is disabled.' }
     $window.SetWindowVisualState([System.Windows.Automation.WindowVisualState]::Maximized)
@@ -766,8 +760,19 @@ try {
     Wait-For {
         (Find-Name $root 'Browse').Current.BoundingRectangle.Top -gt (Find-Control 'FolderPath').Current.BoundingRectangle.Top
     } 'narrow layout reflow'
+    Select-Language '한국어' '시작'
+    Wait-For { (Find-Control 'BrowseButton').Current.BoundingRectangle.Top -gt (Find-Control 'FolderPath').Current.BoundingRectangle.Top } 'Korean narrow layout reflow'
+    Invoke-Id 'ClearHistoryButton'
+    Assert-KoreanEmpty
+    Select-Language 'English' 'Start'
     [void][DesktopNative]::SetWindowPos($process.MainWindowHandle, [IntPtr]::Zero,
         $display.Work.Left, $display.Work.Top, [Math]::Min(380, $width), [Math]::Min(700, $height), 0x14)
+    Commit-Folder $testFolder
+    Select-Format 'PNG'
+    Start-Monitoring
+    Copy-Image
+    Wait-For { $null -ne (Find-Name (Find-Control 'QueueList') 'Saved') } 'queue row for narrow-window accessibility'
+    Stop-Monitoring
     Scroll-ToTop
     Wait-For {
         $queueButton = Find-Name (Find-Control 'QueueList') 'Details'
@@ -776,11 +781,6 @@ try {
             $queueButton.Current.BoundingRectangle.Right -le (Find-Control 'QueueList').Current.BoundingRectangle.Right
     } 'queue Details stays within the narrow list viewport'
     Write-Output '::notice::Queue outcomes/details verified: file and per-image row counts match, failure stage breakdown, original diagnostics, and accessible queue Details at narrow width.'
-    Select-Language '한국어' '시작'
-    Wait-For { (Find-Control 'BrowseButton').Current.BoundingRectangle.Top -gt (Find-Control 'FolderPath').Current.BoundingRectangle.Top } 'Korean narrow layout reflow'
-    Invoke-Id 'ClearHistoryButton'
-    Assert-KoreanEmpty
-    Select-Language 'English' 'Start'
     Write-Output '::notice::Feature smoke passed: PNG/JPEG/BMP pixels, JPEG quality visibility/default/range/edit/freeze, repeated Clear while monitoring and stopped, fresh captures/failures after Clear, file hashes and clipboard retention, preview/history, failure details, maximizing and narrow layout reflow.'
     Close-App
 } catch {
