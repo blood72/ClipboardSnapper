@@ -25,6 +25,7 @@ public sealed class ClipboardMonitor : IAsyncDisposable
     public ClipboardMonitor() => _writer = Task.Run(WriteImagesAsync);
     public ChannelReader<SaveResult> Results => _results.Reader;
     public SessionHistory History { get; } = new();
+    public QueueProgress Progress { get; } = new();
 
     public Task StartAsync(SaveOptions options) => OnCaptureThreadAsync(() =>
     {
@@ -72,13 +73,19 @@ public sealed class ClipboardMonitor : IAsyncDisposable
     private async Task ReadImageAsync(SaveOptions options, long generation, DateTimeOffset acceptedAt)
     {
         var entered = false;
+        var queued = false;
+        var rejected = false;
+        Progress.BeginRead();
         try
         {
             var content = Clipboard.GetContent();
-            if (!content.Contains(StandardDataFormats.Bitmap)) return;
+            if (!content.Contains(StandardDataFormats.Bitmap)) { Progress.IgnoreRead(); return; }
             var captureIndex = _captureIndex++;
             if (_reading >= 2)
+            {
+                rejected = true;
                 throw UiMessage.Io("ClipboardTooFast");
+            }
             _reading++;
             entered = true;
             var bitmap = await content.GetBitmapAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10));
@@ -96,12 +103,17 @@ public sealed class ClipboardMonitor : IAsyncDisposable
                     throw UiMessage.InvalidData("ClipboardTooLarge");
                 bytes.Write(buffer, 0, count);
             }
-            if (!_images.Writer.TryWrite(new CapturedImage(bytes.ToArray(), options, generation)
-                { AcceptedAt = acceptedAt, CaptureIndex = captureIndex }))
+            var image = new CapturedImage(bytes.ToArray(), options, generation)
+                { AcceptedAt = acceptedAt, CaptureIndex = captureIndex };
+            // Reserve the waiting count before publishing: the writer may dequeue immediately.
+            Progress.QueueRead();
+            queued = true;
+            if (!_images.Writer.TryWrite(image))
                 throw UiMessage.Io("SavingBusy");
         }
         catch (Exception exception)
         {
+            if (queued) Progress.RejectQueued(generation); else Progress.FailRead(generation, rejected);
             PublishResult(new SaveResult(options.Folder, DateTimeOffset.Now, false,
                 $"{exception.GetType().Name}: {exception.Message}", Generation: generation) { ErrorMessage = UiMessage.FromException(exception) });
         }
@@ -112,7 +124,9 @@ public sealed class ClipboardMonitor : IAsyncDisposable
     {
         await foreach (var image in _images.Reader.ReadAllAsync())
         {
+            Progress.BeginSave();
             var result = await ImageSaver.SaveAsync(image);
+            Progress.FinishSave(image.Generation, result.Success);
             PublishResult(result);
         }
     }

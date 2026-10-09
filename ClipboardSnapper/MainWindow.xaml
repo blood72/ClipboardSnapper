@@ -42,6 +42,15 @@
                         <Button x:Name="StopButton" Content="{Binding [Stop], Source={StaticResource UiText}}" Click="Stop_Click" IsEnabled="False" AutomationProperties.AutomationId="StopButton" />
                     </StackPanel>
                 </Grid>
+                <StackPanel Spacing="6">
+                    <TextBlock Text="{Binding [QueueTitle], Source={StaticResource UiText}}" Style="{ThemeResource SubtitleTextBlockStyle}" />
+                    <TextBlock x:Name="QueueStatus" TextWrapping="Wrap" AutomationProperties.AutomationId="QueueStatus" AutomationProperties.LiveSetting="Polite" />
+                    <ProgressBar x:Name="QueueBusy" IsIndeterminate="False" Visibility="Collapsed" AutomationProperties.AutomationId="QueueBusy" AutomationProperties.Name="{Binding [QueueProcessing], Source={StaticResource UiText}}" />
+                    <TextBlock x:Name="QueueActivity" TextWrapping="Wrap" AutomationProperties.AutomationId="QueueActivity" />
+                    <TextBlock x:Name="QueueOutcomes" TextWrapping="Wrap" AutomationProperties.AutomationId="QueueOutcomes" />
+                    <TextBlock x:Name="QueueFailures" TextWrapping="Wrap" Visibility="Collapsed" AutomationProperties.AutomationId="QueueFailures" />
+                    <TextBlock Text="{Binding [QueueHelp], Source={StaticResource UiText}}" TextWrapping="Wrap" Opacity="0.7" />
+                </StackPanel>
                 <StackPanel Spacing="8">
                     <ComboBox x:Name="LanguagePicker" Header="{Binding [Language], Source={StaticResource UiText}}" DisplayMemberPath="Name" HorizontalAlignment="Stretch" SelectionChanged="Language_SelectionChanged" AutomationProperties.AutomationId="LanguagePicker" AutomationProperties.Name="{Binding [Language], Source={StaticResource UiText}}" />
                     <TextBlock Text="{Binding [LanguageHelp], Source={StaticResource UiText}}" TextWrapping="Wrap" Opacity="0.7" />

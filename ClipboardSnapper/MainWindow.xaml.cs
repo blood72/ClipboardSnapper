@@ -53,6 +53,8 @@ public sealed partial class MainWindow : Window
     private bool _closing;
     private bool _allowClose;
     private bool _detailsOpen;
+    private QueueSnapshot? _queueSnapshot;
+    private string? _queueStatusKey;
 
     public MainWindow()
     {
@@ -120,6 +122,7 @@ public sealed partial class MainWindow : Window
         if (_resultTitle is not null) ResultMessage.Title = _text[_resultTitle];
         if (_resultNotice is not null) ResultMessage.Message = _resultNotice.Render(_text);
         foreach (var item in _history) item.RefreshLanguage();
+        RefreshQueueProgress(force: true);
         UpdateRulePreview();
     }
 
@@ -449,6 +452,7 @@ public sealed partial class MainWindow : Window
     {
         if (_closing) return;
         _monitor.History.Clear();
+        RefreshQueueProgress(force: true);
         _previewCancellation?.Cancel();
         _previewAttempt = null;
         _history.Clear();
@@ -509,6 +513,7 @@ public sealed partial class MainWindow : Window
 
     private void RefreshResults(DispatcherQueueTimer sender, object args)
     {
+        RefreshQueueProgress();
         for (var i = 0; i < 32 && _monitor.Results.TryRead(out var result); i++)
         {
             if (!_monitor.History.IsCurrent(result.Generation)) continue;
@@ -525,6 +530,22 @@ public sealed partial class MainWindow : Window
             _previewAttempt = latest;
             _ = RefreshPreviewAsync(latest);
         }
+    }
+
+    private void RefreshQueueProgress(bool force = false)
+    {
+        var snapshot = _monitor.Progress.Snapshot(_monitor.History.Generation);
+        var status = snapshot.StatusKey(_watching, _statusKey == "Stopped");
+        if (!force && snapshot == _queueSnapshot && status == _queueStatusKey) return;
+        _queueSnapshot = snapshot;
+        _queueStatusKey = status;
+        QueueStatus.Text = _text[status];
+        QueueActivity.Text = _text.Format("QueueActivity", snapshot.Reading, snapshot.Waiting, snapshot.Saving);
+        QueueOutcomes.Text = _text.Format("QueueOutcomes", snapshot.Saved, snapshot.Failed);
+        QueueFailures.Text = _text.Format("QueueFailures", snapshot.ReadFailed, snapshot.Rejected, snapshot.SaveFailed);
+        QueueFailures.Visibility = snapshot.Failed > 0 ? Visibility.Visible : Visibility.Collapsed;
+        QueueBusy.IsIndeterminate = snapshot.Active > 0;
+        QueueBusy.Visibility = snapshot.Active > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private async Task RefreshPreviewAsync(SaveResult result)

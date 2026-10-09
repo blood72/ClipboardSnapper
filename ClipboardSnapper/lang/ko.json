@@ -36,7 +36,7 @@
     "PreviewEmptyCaption": "이미지를 저장하면 미리보기가 갱신됩니다.",
     "RecentFiles": "최근 파일",
     "ClearHistory": "기록 비우기",
-    "ClearHelp": "현재 세션의 목록과 미리보기만 지우며 저장 파일은 유지됩니다. 감시와 대기 중인 저장은 계속 진행되며 Windows 클립보드는 변경하지 않습니다.",
+    "ClearHelp": "현재 세션의 목록, 미리보기와 완료 누계를 지우며 저장 파일은 유지됩니다. 감시와 대기 중인 저장은 계속 진행되며 Windows 클립보드는 변경하지 않습니다.",
     "EmptyHistory": "현재 세션에서 저장한 이미지와 실패 내역이 여기에 표시됩니다.",
     "RecentSavedFiles": "최근 저장 파일",
     "Details": "자세히",
@@ -123,6 +123,16 @@
     "InvalidLanguageName": "languageName은 비어 있지 않은 문자열이어야 합니다.",
     "InvalidTranslationEntry": "번역 키는 고유해야 하며 값은 비어 있지 않은 문자열이어야 합니다.",
     "InvalidTranslationPlaceholder": "'{0}'의 자리표시자가 원문과 일치하지 않습니다.",
-    "DuplicateLanguageTag": "다른 파일에서 같은 언어 태그를 사용하고 있습니다."
+    "DuplicateLanguageTag": "다른 파일에서 같은 언어 태그를 사용하고 있습니다.",
+    "QueueTitle": "저장 대기열",
+    "QueueProcessing": "이미지 처리 중",
+    "QueueDraining": "접수한 작업 마무리 중",
+    "QueueListening": "새 이미지 대기 중",
+    "QueueFinished": "접수한 작업이 모두 끝났습니다",
+    "QueueIdle": "남은 작업 없음",
+    "QueueActivity": "읽는 중: {0} · 저장 대기: {1} · 저장 중: {2}",
+    "QueueOutcomes": "저장 성공: {0} · 실패: {1}",
+    "QueueFailures": "읽기 실패: {0} · 접수 거절: {1} · 저장 실패: {2}",
+    "QueueHelp": "현재 처리 중인 작업 수를 표시합니다. 완료 누계는 마지막 기록 지우기 이후 기준입니다. 비워도 진행 중인 작업은 유지되며 이전 작업의 결과는 새 누계에 포함되지 않습니다. 실패 원인은 최근 파일 → 상세에서 확인하세요."
   }
 }
