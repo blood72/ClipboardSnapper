@@ -5,6 +5,7 @@ try
     await SessionContracts.RunAsync();
     await QueueContracts.RunAsync();
     await PreferenceContracts.RunAsync();
+    await ImagePreferenceContracts.RunAsync();
     await NamingContracts.RunAsync();
     await LanguageContracts.RunAsync();
 #if WINDOWS
