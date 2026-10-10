@@ -38,6 +38,32 @@ static class EncoderContracts
             Check.That(defaultResult.Success && Quantization(await File.ReadAllBytesAsync(defaultResult.FilePath)).SequenceEqual(Quantization(normal)),
                 "Default JPEG output did not use quality 90.");
 
+            // Hold an accepted job until the stopped UI has chosen the next run's options.
+            var chosen = options with { NamingFormula = "BeforeStop" };
+            var accepted = new CapturedImage(bytes, chosen, 7);
+            var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var pendingSave = Task.Run(async () =>
+            {
+                await release.Task;
+                return await ImageSaver.SaveAsync(accepted);
+            });
+            chosen = chosen with { Format = ImageFormat.Bmp, JpegQuality = 100, NamingFormula = "NextRun" };
+            release.SetResult();
+            var oldRun = await pendingSave;
+            Check.That(oldRun.Success && Path.GetFileName(oldRun.FilePath) == "BeforeStop.jpg" &&
+                Quantization(await File.ReadAllBytesAsync(oldRun.FilePath)).SequenceEqual(Quantization(normal)),
+                "Post-Stop format/quality edits changed a held capture's actual JPEG encoding.");
+            var nextRun = await ImageSaver.SaveAsync(new CapturedImage(bytes, chosen, 7));
+            Check.That(nextRun.Success && Path.GetFileName(nextRun.FilePath) == "NextRun.bmp",
+                "The next capture did not use the new format.");
+            using (var nextStream = await (await StorageFile.GetFileFromPathAsync(nextRun.FilePath)).OpenReadAsync())
+            {
+                var nextDecoder = await BitmapDecoder.CreateAsync(nextStream);
+                Check.That(nextDecoder.DecoderInformation.CodecId == BitmapDecoder.BmpDecoderId,
+                    "The next capture's BMP extension did not match the encoded format.");
+            }
+            Console.WriteLine("::notice::Held accepted JPEG keeps its original quality tables and filename; the next capture uses BMP.");
+
             foreach (var format in new[] { ImageFormat.Png, ImageFormat.Bmp })
             {
                 var result = await ImageSaver.SaveAsync(new CapturedImage(bytes, options with { Format = format, JpegQuality = 0 }, 8));

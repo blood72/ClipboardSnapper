@@ -480,6 +480,8 @@ try {
     Expand-Naming $false
     Write-Output '::notice::Profile UI verified: New default / Duplicate saved source, stable-ID save and rename without prompts, conflicting-name rejection, ordinary default editing/deletion, delete cancellation, empty collection/restart/recovery, read-only session changes, counters across Clear/Start, collision suffixes and existing-image/config preservation.'
 
+    . (Join-Path $PSScriptRoot 'OptionLockSmoke.ps1')
+
     # Hold real clipboard acquisition while Stop and repeated Clear run on the published app.
     Commit-Folder $testFolder
     Select-Format 'PNG'
