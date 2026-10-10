@@ -44,7 +44,7 @@
     "Failed": "저장 실패",
     "ClipboardImage": "클립보드 이미지",
     "Language": "언어",
-    "LanguageHelp": "첫 실행에서는 Windows 언어를 사용합니다. 선택한 언어는 즉시 적용되고 다음 실행에도 유지됩니다. lang 폴더의 번역 JSON 파일을 추가하거나 수정한 뒤 앱을 다시 실행하세요.",
+    "LanguageHelp": "첫 실행에서는 Windows 언어를 사용합니다. 선택한 언어는 즉시 적용되고 다음 실행에도 유지됩니다. lang 폴더의 번역 JSON 파일을 변경한 뒤 감시를 중지하고 설정 다시 읽기를 사용하거나 앱을 다시 실행하세요.",
     "LanguageSettings": "언어 설정",
     "NoProfiles": "프로필이 없습니다. 새 프로필을 눌러 파일명 규칙을 만드세요.",
     "Example": "예시: {0}",
