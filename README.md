@@ -18,9 +18,10 @@ the English control names.
    row with its local save time. **Save failed** and **Failed** rows expose the
    reason; select **Details** for the full path, time, and exception message.
 4. Press **Stop** to stop accepting clipboard changes. Images already being read
-   or saved finish in the background. Stop before changing folder, format, JPEG
-   quality or filename rules. Save options are fixed for each monitoring run and retained by
-   images already accepted, even after Stop.
+   or saved finish in the background. The image format and JPEG quality controls
+   stay disabled while monitoring starts, runs or stops. After Stop completes,
+   edit them for the next run; already accepted images keep their original options.
+   Stop before changing the folder or filename rules as well.
 5. **Clear History**, next to **Recent files**, clears the current session's list,
    preview, queue rows/completed totals, image captions and success/failure messages. It works while monitoring
    or stopped and returns the screen to empty guidance. **Saved files are kept**;
@@ -363,6 +364,11 @@ exercise the real `BitmapEncoder` at quality 1/90/100 and compare file sizes and
 JPEG quantization tables, default 90 and white transparency. UI Automation checks
 Clear while monitoring/stopped, fresh successes/failures, unchanged file hashes
 and clipboard sequence, and JPEG quality visibility/editing restrictions.
+The focused option-lock smoke test observes asynchronous Start with a temporary
+configuration-file sharing lock, attempts disabled format/quality automation input
+while monitoring and during a real blocked Stop, and checks editing recovery and
+the next run's format. A gated real-encoder test checks that an accepted JPEG keeps
+its original quantization tables after next-run format/quality edits.
 Preference contracts cover persisted defaults, invalid/unavailable and missing
 folders, Unicode paths, unrelated INI entries, malformed/read-only/write-failed
 configuration and existing-file retention. UI Automation checks manual focus-loss
