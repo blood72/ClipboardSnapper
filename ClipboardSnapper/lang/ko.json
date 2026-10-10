@@ -147,6 +147,15 @@
     "ImageOptionsWriteFailed": "config.ini에 이미지 형식과 JPEG 품질을 저장하지 못했습니다. 이 선택은 현재 실행 중에만 유지됩니다. {0}",
     "StoredImageFormatInvalid": "저장된 이미지 형식 '{0}'을 지원하지 않습니다. PNG를 사용합니다. 설정 파일은 교체하지 않았습니다.",
     "StoredQualityInvalid": "저장된 JPEG 품질 '{0}'이 유효하지 않습니다. 품질 90을 사용합니다. 설정 파일은 교체하지 않았습니다.",
-    "InvalidImageFormat": "PNG, JPEG 또는 BMP를 선택하세요."
+    "InvalidImageFormat": "PNG, JPEG 또는 BMP를 선택하세요.",
+    "ReloadSettings": "설정 다시 읽기",
+    "ReloadSettingsHelp": "감시를 중지한 후에만 사용할 수 있습니다. 접수된 저장을 완료한 후 config.ini와 lang 파일을 다시 읽습니다. 세션 기록, 미리보기와 누계는 유지됩니다.",
+    "UnsavedSettingsTitle": "저장하지 않은 설정",
+    "UnsavedSettingsQuestion": "이 편집 내용은 저장되지 않았습니다. 계속하면 편집 내용을 버리고 config.ini와 lang 파일에서 설정을 읽습니다. 저장 이미지와 세션 기록은 유지됩니다.",
+    "DiscardAndReload": "편집 버리고 다시 읽기",
+    "SettingsReloaded": "설정을 다시 읽었습니다. 감시는 중지된 상태이며 세션 기록, 미리보기와 누계는 유지됩니다.",
+    "ReloadingSettings": "설정 다시 읽는 중…",
+    "ReloadFailed": "설정을 다시 읽지 못했습니다",
+    "StopBeforeReload": "설정을 다시 읽기 전에 감시를 중지하세요."
   }
 }

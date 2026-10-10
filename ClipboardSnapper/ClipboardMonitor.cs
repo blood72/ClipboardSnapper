@@ -9,7 +9,7 @@ public sealed class ClipboardMonitor : IAsyncDisposable
 {
     private const int MaximumBytes = 128 * 1024 * 1024;
     private readonly DispatcherQueueController _controller = DispatcherQueueController.CreateOnDedicatedThread();
-    private readonly Channel<CapturedImage> _images = Channel.CreateBounded<CapturedImage>(
+    private readonly Channel<SaveWork> _images = Channel.CreateBounded<SaveWork>(
         new BoundedChannelOptions(4) { SingleReader = true, FullMode = BoundedChannelFullMode.Wait });
     private readonly Channel<SaveResult> _results = Channel.CreateBounded<SaveResult>(
         new BoundedChannelOptions(256) { FullMode = BoundedChannelFullMode.DropOldest });
@@ -26,6 +26,17 @@ public sealed class ClipboardMonitor : IAsyncDisposable
     public ChannelReader<SaveResult> Results => _results.Reader;
     public SessionHistory History { get; } = new();
     public QueueProgress Progress { get; } = new();
+
+    private sealed record SaveWork(CapturedImage? Image, TaskCompletionSource? Barrier = null);
+
+    public Task DrainAsync() => OnCaptureThreadAsync(async () =>
+    {
+        if (_watching) throw UiMessage.InvalidOperation("StopBeforeReload");
+        await Task.WhenAll(_pending.ToArray());
+        var barrier = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await _images.Writer.WriteAsync(new(null, barrier));
+        await barrier.Task;
+    });
 
     public Task StartAsync(SaveOptions options) => OnCaptureThreadAsync(() =>
     {
@@ -108,7 +119,7 @@ public sealed class ClipboardMonitor : IAsyncDisposable
             // Reserve the waiting count before publishing: the writer may dequeue immediately.
             Progress.QueueRead(progressId);
             queued = true;
-            if (!_images.Writer.TryWrite(image))
+            if (!_images.Writer.TryWrite(new(image)))
                 throw UiMessage.Io("SavingBusy");
         }
         catch (Exception exception)
@@ -123,8 +134,10 @@ public sealed class ClipboardMonitor : IAsyncDisposable
 
     private async Task WriteImagesAsync()
     {
-        await foreach (var image in _images.Reader.ReadAllAsync())
+        await foreach (var work in _images.Reader.ReadAllAsync())
         {
+            if (work.Barrier is { } barrier) { barrier.SetResult(); continue; }
+            var image = work.Image!;
             Progress.BeginSave(image.ProgressId);
             var result = await ImageSaver.SaveAsync(image);
             Progress.FinishSave(image.ProgressId, result);

@@ -7,10 +7,17 @@ public sealed class LanguagePreferences(string configPath)
     private readonly PortableConfig _config = new(configPath);
     public Task<LanguagePreference> LoadAsync() => Task.Run(() =>
     {
-        try { return new LanguagePreference(_config.Read(d => d.Get("Appearance", "Language")), null); }
+        try { return _config.Read(Read); }
         catch (Exception exception) when (PortableConfig.IsStorageError(exception))
-        { return new LanguagePreference(null, new("LanguageReadFailed", UiMessage.FromException(exception))); }
+        { return ReadFailure(exception); }
     });
+    internal static LanguagePreference ReadFailure(Exception exception) =>
+        new(null, new("LanguageReadFailed", UiMessage.FromException(exception)));
+    internal static LanguagePreference Read(IniDocument document)
+    {
+        try { return new(document.Get("Appearance", "Language"), null); }
+        catch (Exception exception) when (PortableConfig.IsStorageError(exception)) { return ReadFailure(exception); }
+    }
     public Task<LanguagePreference> SaveAsync(string code) => Task.Run(() =>
     {
         try
