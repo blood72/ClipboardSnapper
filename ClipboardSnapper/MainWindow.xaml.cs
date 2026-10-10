@@ -18,6 +18,14 @@ public sealed partial class MainWindow : Window
 {
     private readonly UiText _text = (UiText)Application.Current.Resources["UiText"];
     private readonly LanguagePreferences _languagePreferences = new(PortableConfig.ExecutableConfigPath);
+    private readonly ImagePreferences _imagePreferences = new(PortableConfig.ExecutableConfigPath);
+    private readonly DispatcherQueueTimer _imageSave;
+    private Task<ImagePreference>? _imageUpdate;
+    private bool _imageReady;
+    private bool _applyingImageOptions;
+    private bool _imageDirty;
+    private long _imageRevision;
+    private long _imageGeneration;
     private Task<LanguagePreference>? _languageUpdate;
     private bool _languageReady;
     private bool _languageBusy;
@@ -62,6 +70,9 @@ public sealed partial class MainWindow : Window
     {
         _namingPreferences = new NamingPreferences(_preferences.ConfigPath);
         InitializeComponent();
+        _imageSave = DispatcherQueue.CreateTimer();
+        _imageSave.Interval = TimeSpan.FromMilliseconds(200);
+        _imageSave.Tick += (_, _) => { _imageSave.Stop(); _ = FlushImageOptionsAsync(); };
         QueueList.ItemsSource = _queueItems;
         _text.LanguageChanged += LanguageChanged;
         LanguageChanged(this, EventArgs.Empty);
@@ -86,20 +97,94 @@ public sealed partial class MainWindow : Window
         var code = _text.Catalog.Resolve(language.Code, CultureInfo.CurrentUICulture.Name);
         ApplyLanguagePicker(code);
         _languageReady = true;
-        await UpdateFolderAsync(null);
+        var folder = await UpdateFolderAsync(null);
         if (_closing) return;
         _folderReady = true;
         var naming = await _namingPreferences.LoadAsync();
         if (_closing) return;
         ApplyNamingState(naming.State);
         _namingReady = true;
+        var image = await _imagePreferences.LoadAsync();
+        if (_closing) return;
+        ApplyImageOptions(image.Settings);
+        _imageReady = true;
         if (naming.Notice is not null) ShowNamingWarning(naming.Notice, _monitor.History.Generation);
         var languageNotices = _text.Catalog.Notices.ToList();
         if (language.Notice is not null) languageNotices.Add(language.Notice);
         if (language.Code is not null && !language.Code.Equals(code, StringComparison.OrdinalIgnoreCase))
             languageNotices.Add(new("LanguageUnavailable", language.Code));
         if (languageNotices.Count > 0) ShowLanguageNotices(languageNotices, _monitor.History.Generation);
+        if (image.Notices.Count > 0)
+        {
+            var notices = image.Notices.Concat(folder.Notices).Concat(languageNotices).ToList();
+            if (naming.Notice is not null) notices.Add(naming.Notice);
+            ShowImageNotices(notices, _monitor.History.Generation);
+        }
         if (!_closing) SetControls();
+    }
+
+    private void ApplyImageOptions(ImageSettings settings)
+    {
+        _applyingImageOptions = true;
+        try
+        {
+            FormatPicker.SelectedIndex = (int)settings.Format;
+            JpegQuality.Value = settings.JpegQuality;
+            UpdateQualityVisibility();
+        }
+        finally { _applyingImageOptions = false; }
+    }
+
+    private void ScheduleImageOptionsSave(bool immediate = false)
+    {
+        if (!_imageReady || _applyingImageOptions || _closing || _watching || _starting || _stopping) return;
+        _imageDirty = true;
+        _imageRevision++;
+        _imageGeneration = _monitor.History.Generation;
+        _imageSave.Stop();
+        if (immediate) _ = FlushImageOptionsAsync();
+        else _imageSave.Start();
+    }
+
+    private Task FlushImageOptionsAsync()
+    {
+        _imageSave.Stop();
+        if (!_imageDirty) return (Task?)_imageUpdate ?? Task.CompletedTask;
+        _imageDirty = false;
+        var settings = new ImageSettings((ImageFormat)FormatPicker.SelectedIndex, (int)Math.Round(JpegQuality.Value));
+        var previous = _imageUpdate;
+        var revision = _imageRevision;
+        var generation = _imageGeneration;
+        return _imageUpdate = SaveAsync();
+        async Task<ImagePreference> SaveAsync()
+        {
+            if (previous is not null) await previous;
+            var result = await _imagePreferences.SaveAsync(settings);
+            if (!_closing && revision == _imageRevision && _monitor.History.IsCurrent(generation))
+            {
+                if (result.Notices.Count > 0) ShowImageNotices(result.Notices, generation);
+                else if (_settingsTitle == "ImageOptionsSettings")
+                {
+                    _settingsTitle = null;
+                    _settingsNotice = null;
+                    SettingsMessage.IsOpen = false;
+                    SettingsMessage.Title = "";
+                    SettingsMessage.Message = "";
+                }
+            }
+            return result;
+        }
+    }
+
+    private void ShowImageNotices(IReadOnlyList<UiMessage> notices, long generation)
+    {
+        if (!_monitor.History.IsCurrent(generation)) return;
+        _settingsTitle = "ImageOptionsSettings";
+        _settingsNotice = new("Raw", new UiMessageList(notices));
+        SettingsMessage.Title = _text[_settingsTitle];
+        SettingsMessage.Message = _settingsNotice.Render(_text);
+        SettingsMessage.Severity = InfoBarSeverity.Warning;
+        SettingsMessage.IsOpen = notices.Count > 0;
     }
 
     private void ApplyLanguagePicker(string code)
@@ -376,6 +461,8 @@ public sealed partial class MainWindow : Window
             if (_closing) return;
             if (!preference.CanUse) throw UiMessage.Io("UsableFolder");
             var folder = preference.Folder;
+            await FlushImageOptionsAsync();
+            if (_closing) return;
             var options = new SaveOptions(folder, (ImageFormat)FormatPicker.SelectedIndex,
                 (int)Math.Round(JpegQuality.Value), RuleFormula.Text);
             _namingState = CurrentNamingState();
@@ -422,7 +509,7 @@ public sealed partial class MainWindow : Window
 
     private void SetControls()
     {
-        var editable = _folderReady && _namingReady && !_watching && !_starting && !_presetBusy;
+        var editable = _folderReady && _namingReady && _imageReady && !_watching && !_starting && !_presetBusy;
         var hasProfile = PresetPicker.SelectedItem is NamingPreset;
         LanguagePicker.IsEnabled = _languageReady && !_languageBusy && !_closing;
         StartButton.IsEnabled = editable && _namingValid;
@@ -444,8 +531,12 @@ public sealed partial class MainWindow : Window
     {
         UpdateQualityVisibility();
         UpdateRulePreview();
+        ScheduleImageOptionsSave(immediate: true);
         if (_namingReady && !_closing) SetControls();
     }
+
+    private void Quality_ValueChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs args)
+        => ScheduleImageOptionsSave();
 
     private void UpdateQualityVisibility()
     {
@@ -651,10 +742,12 @@ public sealed partial class MainWindow : Window
         _statusKey = "Finishing";
         MonitoringStatus.Text = _text[_statusKey];
         _refresh.Stop();
+        _imageSave.Stop();
         _previewCancellation?.Cancel();
         _presetDialog?.Hide();
         try
         {
+            await FlushImageOptionsAsync();
             if (_folderReady && !_watching && !_starting) await UpdateFolderAsync(FolderPath.Text);
             if (_folderUpdate is not null) await _folderUpdate;
             if (_namingReady && !_watching && !_starting && !_presetBusy && (_namingValid || _namingState.Selected is null)) await SaveNamingAsync(CurrentNamingState());

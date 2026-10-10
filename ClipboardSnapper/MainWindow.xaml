@@ -97,7 +97,7 @@
                                 <TextBlock Text="{Binding [Quality], Source={StaticResource UiText}}" />
                                 <Grid ColumnSpacing="8">
                                     <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                    <Slider x:Name="JpegQuality" Minimum="1" Maximum="100" Value="90" StepFrequency="1" AutomationProperties.Name="{Binding [JpegQuality], Source={StaticResource UiText}}" AutomationProperties.AutomationId="JpegQuality" />
+                                    <Slider x:Name="JpegQuality" Minimum="1" Maximum="100" Value="90" StepFrequency="1" ValueChanged="Quality_ValueChanged" AutomationProperties.Name="{Binding [JpegQuality], Source={StaticResource UiText}}" AutomationProperties.AutomationId="JpegQuality" />
                                     <TextBlock Grid.Column="1" Text="{Binding Value, ElementName=JpegQuality}" VerticalAlignment="Center" />
                                 </Grid>
                             </StackPanel>

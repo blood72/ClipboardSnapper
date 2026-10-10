@@ -141,6 +141,12 @@
     "QueueSaving": "Saving",
     "QueueReadFailed": "Read failed",
     "QueueRejected": "Rejected",
-    "QueueStopping": "Stopping monitoring"
+    "QueueStopping": "Stopping monitoring",
+    "ImageOptionsSettings": "Image format and quality settings",
+    "ImageOptionsReadFailed": "Could not read image format and JPEG quality from config.ini. Using PNG and quality 90. The configuration was not replaced. {0}",
+    "ImageOptionsWriteFailed": "Could not save image format and JPEG quality in config.ini. These choices are available for this session only. {0}",
+    "StoredImageFormatInvalid": "Saved image format '{0}' is unsupported. Using PNG. The configuration was not replaced.",
+    "StoredQualityInvalid": "Saved JPEG quality '{0}' is invalid. Using quality 90. The configuration was not replaced.",
+    "InvalidImageFormat": "Choose PNG, JPEG, or BMP."
   }
 }

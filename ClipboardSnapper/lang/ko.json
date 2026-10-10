@@ -141,6 +141,12 @@
     "QueueSaving": "저장 중",
     "QueueReadFailed": "읽기 실패",
     "QueueRejected": "접수 거절",
-    "QueueStopping": "감시 중지 요청 중"
+    "QueueStopping": "감시 중지 요청 중",
+    "ImageOptionsSettings": "이미지 형식 및 품질 설정",
+    "ImageOptionsReadFailed": "config.ini에서 이미지 형식과 JPEG 품질을 읽지 못했습니다. PNG와 품질 90을 사용합니다. 설정 파일은 교체하지 않았습니다. {0}",
+    "ImageOptionsWriteFailed": "config.ini에 이미지 형식과 JPEG 품질을 저장하지 못했습니다. 이 선택은 현재 실행 중에만 유지됩니다. {0}",
+    "StoredImageFormatInvalid": "저장된 이미지 형식 '{0}'을 지원하지 않습니다. PNG를 사용합니다. 설정 파일은 교체하지 않았습니다.",
+    "StoredQualityInvalid": "저장된 JPEG 품질 '{0}'이 유효하지 않습니다. 품질 90을 사용합니다. 설정 파일은 교체하지 않았습니다.",
+    "InvalidImageFormat": "PNG, JPEG 또는 BMP를 선택하세요."
   }
 }
