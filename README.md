@@ -31,9 +31,9 @@ the English control names.
    cleanup action, not secure deletion. Folder settings, filename presets and
    numbering state are kept.
 
-The UI language, save folder, filename formula, active preset and saved user presets are
-remembered in `config.ini` beside the executable. Image format,
-JPEG quality and the latest 100 history rows are session-only. Files remain on disk.
+The UI language, save folder, image format, JPEG quality, filename formula, active
+preset and saved user presets are remembered in `config.ini` beside the executable.
+The latest 100 history rows are session-only. Files remain on disk.
 Closing the window waits for accepted reads and writes to finish. JPEG images
 are composited onto white because JPEG cannot store transparency. Failed writes
 use temporary files and do not expose a partially written final image.
@@ -127,7 +127,7 @@ the folder and remains in **Ready**, with monitoring off.
 
 The configuration is portable: `config.ini` lives in the executable's directory,
 regardless of the working directory used to launch the app. Keep it alongside the
-app when moving or updating the application. The app creates it when a folder
+app when moving or updating the application. The app creates it when a
 preference is saved; it is not a required runtime/deployment file.
 
 ```ini
@@ -160,6 +160,41 @@ warns that it was not remembered. The app does not request elevation or silently
 move configuration elsewhere. Saved images and clipboard contents are unaffected.
 Settings I/O and validation run off the UI thread, separately from clipboard reads
 and the image-saving worker; rapid preference updates are serialized.
+
+## Remembered image format and JPEG quality
+
+Changing **Image format** saves immediately. **JPEG Quality** changes are saved
+200 ms after the last slider edit, coalescing continuous adjustments off the UI
+thread. Start and normal window close await the last pending write. No capture,
+Start or separate Save button is required to remember either choice.
+
+```ini
+[Storage]
+ImageFormat=JPEG
+JpegQuality=90
+```
+
+These keys share the existing portable `config.ini` with the save folder, profiles
+and language. Formats are `PNG`, `JPEG` or `BMP` (case-insensitive); quality is an
+integer from 1 to 100. Missing values default independently to PNG and 90. The
+quality control is visible only for JPEG; switching to PNG/BMP and back preserves
+its remembered value, and non-JPEG encoders ignore it. The monitoring-time locks
+and frozen capture options described above still apply.
+
+An unsupported format falls back to PNG; invalid quality falls back to 90, while
+the other valid value is retained. These fallbacks show a warning and do not
+rewrite the saved values merely by loading them. An unreadable/malformed file or
+duplicate preference key uses PNG/90 with a warning and preserves the original
+file. An explicit option edit can save corrected values to an otherwise valid
+file. Failed writes show a warning and retain the selected values for the current
+session; restarting restores the last successfully saved values. Clear History
+suppresses late warnings from edits made before the clear without cancelling the
+settings write. Unrelated INI entries and comments are preserved.
+
+The same image-preference loader is available for the separately planned full
+[Reload settings command](https://github.com/blood72/ClipboardSnapper/issues/19).
+That command is not implemented in this snapshot; external configuration edits
+are read on the next launch.
 
 ## Filename formulas and user presets
 
@@ -375,6 +410,13 @@ configuration and existing-file retention. UI Automation checks manual focus-los
 persistence and Browse selection/cancellation without Start or captures, restores
 the path across process restarts from a different working directory, checks the
 read-only configuration warning, and verifies persistent fallback to the default.
+Image preference contracts cover all formats and quality limits, isolated invalid
+value fallback, malformed/duplicate/read-only storage, and concurrent reads/writes
+without torn format/quality pairs or lost folder/profile/language settings. Windows
+UI Automation checks all format/quality-limit pairs across real process restarts
+without captures, PNG/BMP quality retention, rapid edits, Start/Close flushing,
+read-only session choices, generation-safe Clear, and external/missing/invalid
+startup values without automatic rewriting.
 Naming contracts verify all date/time variables, signed/multiple counters, random
 variables, preview isolation, invalid Windows names, frozen capture metadata,
 suffix gaps and occupied directories, concurrent non-overwriting moves, persistent
