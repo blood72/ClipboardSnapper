@@ -111,8 +111,8 @@ current English file, then the embedded English baseline. Malformed JSON, duplic
 keys, invalid language tags and incompatible placeholders are rejected per file;
 other language files remain usable. Embedded English handles absent external files.
 
-A unified [Reload settings feature](https://github.com/blood72/ClipboardSnapper/issues/19)
-is tracked in the 1.0.0 backlog; the current app has no language-only reload command.
+**Reload settings** reads configuration and language packs together while stopped;
+see the reload procedure below. There is no separate language-only reload command.
 
 See [Translation file guide](docs/translations.md) for the format and examples.
 Until formal 1.0.0, migrations between snapshot configuration formats are not
@@ -191,10 +191,43 @@ session; restarting restores the last successfully saved values. Clear History
 suppresses late warnings from edits made before the clear without cancelling the
 settings write. Unrelated INI entries and comments are preserved.
 
-The same image-preference loader is available for the separately planned full
-[Reload settings command](https://github.com/blood72/ClipboardSnapper/issues/19).
-That command is not implemented in this snapshot; external configuration edits
-are read on the next launch.
+## Reload settings
+
+Use **Reload settings** under **Save settings** after pressing Stop, or before
+starting monitoring. The command is unavailable during monitoring, Start/Stop
+transitions, a folder picker, profile operations, or another reload. It never stops
+monitoring automatically. It waits for already accepted reads and saves to finish
+with their original captured options, then remains stopped.
+
+Reload reads one `config.ini` snapshot for the folder, filename profiles/formula,
+selected profile, language and image format/quality, and discovers `lang/*.json`
+again. Added, edited, removed or invalid packs take effect without restarting.
+The startup and reload paths share the same loader, validation, defaults and
+warnings. Missing entries use fresh defaults; invalid individual values use their
+normal fallback without keeping stale values. Invalid/unreadable INI uses defaults
+with visible diagnostics and preserves the file. The existing unusable-folder
+policy still writes its default fallback if possible. Unrelated INI data is kept.
+
+Already submitted configuration writes complete before the read boundary. Avoid
+editing files concurrently with outstanding app writes: those writes can still
+persist their previously submitted values. During reload, configuration editing
+is disabled and late write callbacks cannot restore old controls or notices.
+A quality edit still waiting for its debounce, a folder field still being edited,
+unsaved profile name/formula, or a failed persistence change requires confirmation:
+**Discard and reload** applies file contents without saving those edits; **Cancel**
+keeps the current edits/settings. Cancelled slider edits resume their ordinary
+background persistence. Focusing the reload command does not first save a pending
+folder edit; tabbing away without invoking restores ordinary folder persistence.
+
+Session history, queue history, the preview and completed totals are retained.
+The screen can show normal completions while remaining saves drain. Reload does
+not clear history, reset filename counters by starting monitoring, delete images
+or modify the Windows clipboard. Separately pressing Clear History during reload
+keeps its existing generation rules, including suppression of old completion
+results and late reload notices. A normal window close waits for an active reload;
+closing during reload does not save its discarded/unconfirmed editor contents.
+Future preferences must join this common loader when implemented; automatic-update
+settings are not implemented in this snapshot.
 
 ## Filename formulas and user presets
 
@@ -434,6 +467,13 @@ controls, help/accessibility, validation and dialogs; PNG/JPEG/BMP saving; langu
 switches while monitoring with existing history; Clear History, file/clipboard
 retention; translated failures with original diagnostics; restart/session-only
 language choices; new/edited/removed JSON languages; and Korean narrow-window reflow.
+Reload contracts exercise complete INI updates concurrent with repeated loads,
+independent invalid/default recovery, folder fallback and live catalog replacement.
+Published-app UI Automation checks monitoring/Stop restrictions, focused unsaved
+folder/profile confirmation and cancellation, external settings, repeated/read-only
+loads without rewriting, retained history/preview/totals/files/clipboard, accepted
+save options, pending-write/Clear coordination, language pack changes and Korean
+confirmation, and malformed/removed settings recovery.
 Both JSON files are required publish contents and included in artifact verification.
 The artifact is uploaded
 only after these checks pass. CI then downloads that artifact and compares

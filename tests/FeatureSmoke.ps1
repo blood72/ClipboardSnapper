@@ -482,6 +482,7 @@ try {
 
     . (Join-Path $PSScriptRoot 'OptionLockSmoke.ps1')
     . (Join-Path $PSScriptRoot 'ImagePreferenceSmoke.ps1')
+    . (Join-Path $PSScriptRoot 'ReloadSettingsSmoke.ps1')
 
     # Hold real clipboard acquisition while Stop and repeated Clear run on the published app.
     Commit-Folder $testFolder
