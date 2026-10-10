@@ -2,9 +2,11 @@
 
 ClipboardSnapper reads editable UTF-8 JSON from `lang` beside the executable.
 `en.json` and `ko.json` ship with the app. Copy a file to another language tag,
-edit its strings, then restart the app and select its display name.
+edit its strings, then use **Reload settings** while stopped (or restart the app)
+and select its display name.
 No rebuild, installation or hardcoded supported-language list is needed.
-Files are read at startup; switching between loaded languages still applies immediately.
+Files are read at startup and by Reload settings; switching between loaded
+languages still applies immediately.
 
 For a minimal additional language, create `lang/ja.json`:
 
@@ -38,9 +40,9 @@ are displayed literally; preserve formula tokens and option names. Keep `Raw` as
 Each file is limited to 1 MB. Invalid JSON/types, repeated string keys, conflicting
 language codes, invalid tags, blank values and mismatched numbered placeholders
 produce a warning and exclude that file. Other packs stay usable. File diagnostics
-may include raw JSON/system parser information. Edit the file and restart to recover.
+may include raw JSON/system parser information. Edit the file, then reload settings or restart to recover.
 
-Added, edited or removed files take effect on the next launch. If the saved pack
+Added, edited or removed files take effect on the next settings reload or launch. If the saved pack
 is missing or fails validation, the app uses English with a warning. Select an
 available language to save a new preference; fallback alone does not rewrite it.
 User profile names, paths, clipboard contents, image files and filename formulas
@@ -48,8 +50,13 @@ are never translated or renamed. Windows-owned dialogs remain Windows-controlled
 The app translates its own UI, validation reasons and summaries while retaining
 original technical failure details.
 
-A unified [Reload settings feature](https://github.com/blood72/ClipboardSnapper/issues/19)
-is tracked in the 1.0.0 backlog; the current app has no language-only reload command.
+**Reload settings**, under Save settings, reloads all settings and translation
+packs together. Press Stop first; the command is unavailable while monitoring or
+during Start/Stop. Accepted saves finish with their original options. Confirm
+discarding any unsaved edits when prompted; cancel keeps them. Session history,
+preview and completed totals are retained. There is no separate language-only
+reload command. See [the README](../README.md#reload-settings) for the complete
+configuration and pending-write policy.
 
 Only English and Korean are bundled and verified. The Japanese example demonstrates
 how to add another language; it is not a complete supported translation. Configuration

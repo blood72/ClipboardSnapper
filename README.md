@@ -103,9 +103,10 @@ exception information. Repository documentation remains English.
 
 Translations are editable UTF-8 files in **`lang` beside `ClipboardSnapper.exe`**.
 The publish artifact includes `lang/en.json` and `lang/ko.json`. Add another
-language-tag JSON file, such as `lang/ja.json`, then restart the app to select it;
-no app rebuild is required. Translation files are read at startup. Added, edited,
-removed or invalidated files take effect on the next launch; an unavailable saved
+language-tag JSON file, such as `lang/ja.json`, then use **Reload settings** while
+stopped (or restart the app) to select it; no app rebuild is required. Translation
+files are read at startup and by Reload settings. Added, edited, removed or
+invalidated files take effect on the next load; an unavailable saved
 language falls back to English with a warning. Missing translation keys use the
 current English file, then the embedded English baseline. Malformed JSON, duplicate
 keys, invalid language tags and incompatible placeholders are rejected per file;

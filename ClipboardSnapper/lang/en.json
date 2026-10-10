@@ -44,7 +44,7 @@
     "Failed": "Failed",
     "ClipboardImage": "Clipboard image",
     "Language": "Language",
-    "LanguageHelp": "Uses Windows language on first launch. Your selection is applied immediately and remembered. Restart the app after adding or editing translation JSON files in the lang folder.",
+    "LanguageHelp": "Uses Windows language on first launch. Your selection is applied immediately and remembered. After changing translation JSON files in the lang folder, use Reload settings while stopped or restart the app.",
     "LanguageSettings": "Language settings",
     "NoProfiles": "No profiles. Choose New Profile to create a filename rule.",
     "Example": "Example: {0}",
