@@ -94,6 +94,9 @@ function Invoke-Id([string]$Id) {
 }
 function Set-Folder([string]$Path) {
     Scroll-ToTop
+    Wait-For {
+        (Find-Control 'FolderPath').Current.IsEnabled -and [DesktopNative]::IsWindowEnabled($process.MainWindowHandle)
+    } 'folder editor restored after asynchronous operations'
     (Find-Control 'FolderPath').SetFocus()
     ([System.Windows.Automation.ValuePattern](Find-Control 'FolderPath').GetCurrentPattern(
         [System.Windows.Automation.ValuePattern]::Pattern)).SetValue($Path)
