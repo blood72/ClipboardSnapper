@@ -451,7 +451,7 @@ public sealed partial class MainWindow : Window
 
     private async void Start_Click(object sender, RoutedEventArgs args)
     {
-        if (_closing || _starting || _presetBusy || !_folderReady || !_namingReady || !_namingValid) return;
+        if (_closing || _starting || _presetBusy || !_folderReady || !_namingReady || !_imageReady || !_namingValid) return;
         var generation = _monitor.History.Generation;
         _starting = true;
         SetControls();

@@ -31,10 +31,9 @@ the English control names.
    cleanup action, not secure deletion. Folder settings, filename presets and
    numbering state are kept.
 
-The UI language, save folder, filename formula, active preset and saved user presets are
-remembered in `config.ini` beside the executable. Image format,
-The image format and JPEG quality are remembered in `config.ini`. The latest 100
-history rows are session-only. Files remain on disk.
+The UI language, save folder, image format, JPEG quality, filename formula, active
+preset and saved user presets are remembered in `config.ini` beside the executable.
+The latest 100 history rows are session-only. Files remain on disk.
 Closing the window waits for accepted reads and writes to finish. JPEG images
 are composited onto white because JPEG cannot store transparency. Failed writes
 use temporary files and do not expose a partially written final image.

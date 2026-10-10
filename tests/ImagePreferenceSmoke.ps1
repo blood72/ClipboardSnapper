@@ -45,7 +45,10 @@ foreach ($entry in @('SaveFolder=', 'Formula=', 'SelectedPreset=', 'Preset.')) {
         if (-not (Read-Config).Contains($line)) { throw "Image writes replaced unrelated $entry data." }
     }
 }
-if (-not (Read-Config).Contains($marker)) { throw 'Image writes removed unknown entries/comments.' }
+# Profile saves can insert their entries between a retained comment and the next section.
+foreach ($line in @('; image preference preservation', '[FutureOption]', 'Keep=one=two;#three')) {
+    if ($line -notin ((Read-Config) -split '\r?\n')) { throw "Image writes removed unknown entry/comment: $line" }
+}
 
 # Fast edits must not let older save callbacks replace the latest pair.
 foreach ($value in @(15, 28, 49, 72, 84)) { Set-Quality $value }
