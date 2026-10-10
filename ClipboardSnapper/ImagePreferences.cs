@@ -15,9 +15,9 @@ public sealed class ImagePreferences(string configPath)
 
     public Task<ImagePreference> LoadAsync() => Task.Run(() =>
     {
-        try { return _config.Read(ReadSettings); }
+        try { return _config.Read(Read); }
         catch (Exception exception) when (PortableConfig.IsStorageError(exception))
-        { return new ImagePreference(ImageSettings.Default, [new("ImageOptionsReadFailed", UiMessage.FromException(exception))]); }
+        { return ReadFailure(exception); }
     });
 
     public Task<ImagePreference> SaveAsync(ImageSettings settings) => Task.Run(() =>
@@ -36,6 +36,15 @@ public sealed class ImagePreferences(string configPath)
         catch (Exception exception) when (PortableConfig.IsStorageError(exception))
         { return new ImagePreference(settings, [new("ImageOptionsWriteFailed", UiMessage.FromException(exception))]); }
     });
+
+    internal static ImagePreference ReadFailure(Exception exception) =>
+        new(ImageSettings.Default, [new("ImageOptionsReadFailed", UiMessage.FromException(exception))]);
+
+    internal static ImagePreference Read(IniDocument document)
+    {
+        try { return ReadSettings(document); }
+        catch (Exception exception) when (PortableConfig.IsStorageError(exception)) { return ReadFailure(exception); }
+    }
 
     private static ImagePreference ReadSettings(IniDocument document)
     {

@@ -82,7 +82,7 @@ public sealed record LanguageCatalog(IReadOnlyList<LanguageOption> Languages, IR
 public sealed class UiText : INotifyPropertyChanged
 {
     internal static IReadOnlyDictionary<string, string> EnglishStrings { get; } = ReadEnglish();
-    public LanguageCatalog Catalog { get; }
+    public LanguageCatalog Catalog { get; private set; }
     public LanguageOption Language { get; private set; }
     public event PropertyChangedEventHandler? PropertyChanged;
     public event EventHandler? LanguageChanged;
@@ -97,6 +97,12 @@ public sealed class UiText : INotifyPropertyChanged
         Catalog.Languages.First(l => l.Code == "en").Strings.TryGetValue(key, out var english) ? english : EnglishStrings[key];
     public string Format(string key, params object[] arguments) => FormatValue(this[key], arguments);
     public static string English(string key, params object[] arguments) => FormatValue(EnglishStrings[key], arguments);
+
+    public void ReplaceCatalog(LanguageCatalog catalog, string code)
+    {
+        Catalog = catalog;
+        Select(code);
+    }
 
     public void Select(string code)
     {

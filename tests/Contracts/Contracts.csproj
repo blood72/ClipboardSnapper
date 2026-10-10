@@ -10,6 +10,7 @@
     <Compile Include="../../ClipboardSnapper/UiText.cs" Link="UiText.cs" />
     <Compile Include="../../ClipboardSnapper/LanguagePreferences.cs" Link="LanguagePreferences.cs" />
     <Compile Include="../../ClipboardSnapper/ImagePreferences.cs" Link="ImagePreferences.cs" />
+    <Compile Include="../../ClipboardSnapper/SettingsLoader.cs" Link="SettingsLoader.cs" />
     <EmbeddedResource Include="../../ClipboardSnapper/lang/en.json" LogicalName="ClipboardSnapper.lang.en.json" />
     <Content Include="../../ClipboardSnapper/lang/*.json" Link="lang/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <Compile Include="../../ClipboardSnapper/ImageModels.cs" Link="ImageModels.cs" />

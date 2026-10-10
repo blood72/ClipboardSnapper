@@ -147,6 +147,15 @@
     "ImageOptionsWriteFailed": "Could not save image format and JPEG quality in config.ini. These choices are available for this session only. {0}",
     "StoredImageFormatInvalid": "Saved image format '{0}' is unsupported. Using PNG. The configuration was not replaced.",
     "StoredQualityInvalid": "Saved JPEG quality '{0}' is invalid. Using quality 90. The configuration was not replaced.",
-    "InvalidImageFormat": "Choose PNG, JPEG, or BMP."
+    "InvalidImageFormat": "Choose PNG, JPEG, or BMP.",
+    "ReloadSettings": "Reload settings",
+    "ReloadSettingsHelp": "Available only after Stop. Waits for accepted saves, then reloads config.ini and lang files. Keeps session history, preview and totals.",
+    "UnsavedSettingsTitle": "Unsaved settings",
+    "UnsavedSettingsQuestion": "These edits have not been saved. Continuing discards them and loads settings from config.ini and lang files. Saved images and session history are kept.",
+    "DiscardAndReload": "Discard and reload",
+    "SettingsReloaded": "Settings reloaded. Monitoring remains stopped; session history, preview and totals are kept.",
+    "ReloadingSettings": "Reloading settings…",
+    "ReloadFailed": "Could not reload settings",
+    "StopBeforeReload": "Stop monitoring before reloading settings."
   }
 }

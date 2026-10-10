@@ -94,6 +94,9 @@ function Invoke-Id([string]$Id) {
 }
 function Set-Folder([string]$Path) {
     Scroll-ToTop
+    Wait-For {
+        (Find-Control 'FolderPath').Current.IsEnabled -and [DesktopNative]::IsWindowEnabled($process.MainWindowHandle)
+    } 'folder editor restored after asynchronous operations'
     (Find-Control 'FolderPath').SetFocus()
     ([System.Windows.Automation.ValuePattern](Find-Control 'FolderPath').GetCurrentPattern(
         [System.Windows.Automation.ValuePattern]::Pattern)).SetValue($Path)
@@ -482,6 +485,7 @@ try {
 
     . (Join-Path $PSScriptRoot 'OptionLockSmoke.ps1')
     . (Join-Path $PSScriptRoot 'ImagePreferenceSmoke.ps1')
+    . (Join-Path $PSScriptRoot 'ReloadSettingsSmoke.ps1')
 
     # Hold real clipboard acquisition while Stop and repeated Clear run on the published app.
     Commit-Folder $testFolder

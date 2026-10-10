@@ -65,13 +65,20 @@ public sealed class NamingPreferences(string configPath)
 
     public Task<NamingPreference> LoadAsync() => Task.Run(() =>
     {
-        try { return new NamingPreference(_config.Read(ReadState), null); }
+        try { return _config.Read(Read); }
         catch (Exception exception) when (IsPreferenceError(exception))
         {
-            return new NamingPreference(NamingState.Default,
-                new("NamingReadFailed", UiMessage.FromException(exception)));
+            return ReadFailure(exception);
         }
     });
+
+    internal static NamingPreference ReadFailure(Exception exception) =>
+        new(NamingState.Default, new("NamingReadFailed", UiMessage.FromException(exception)));
+    internal static NamingPreference Read(IniDocument document)
+    {
+        try { return new(ReadState(document), null); }
+        catch (Exception exception) when (IsPreferenceError(exception)) { return ReadFailure(exception); }
+    }
 
     public Task<NamingPreference> SaveAsync(NamingState state) => Task.Run(() =>
     {

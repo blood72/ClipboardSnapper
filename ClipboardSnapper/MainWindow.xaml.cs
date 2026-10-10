@@ -16,6 +16,15 @@ namespace ClipboardSnapper;
 
 public sealed partial class MainWindow : Window
 {
+    private readonly SettingsLoader _settingsLoader;
+    private bool _reloading;
+    private bool _reloadFocus;
+    private bool _browseBusy;
+    private Task? _reloadTask;
+    private string _savedFolder = "";
+    private NamingState _savedNaming = NamingState.Empty;
+    private ImageSettings _savedImage = ImageSettings.Default;
+    private string _savedLanguage = "en";
     private readonly UiText _text = (UiText)Application.Current.Resources["UiText"];
     private readonly LanguagePreferences _languagePreferences = new(PortableConfig.ExecutableConfigPath);
     private readonly ImagePreferences _imagePreferences = new(PortableConfig.ExecutableConfigPath);
@@ -69,6 +78,7 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         _namingPreferences = new NamingPreferences(_preferences.ConfigPath);
+        _settingsLoader = new(_preferences.ConfigPath, _preferences.DefaultFolder, Path.Combine(AppContext.BaseDirectory, "lang"));
         InitializeComponent();
         _imageSave = DispatcherQueue.CreateTimer();
         _imageSave.Interval = TimeSpan.FromMilliseconds(200);
@@ -92,35 +102,133 @@ public sealed partial class MainWindow : Window
 
     private async Task InitializeFolderAsync()
     {
-        var language = await _languagePreferences.LoadAsync();
+        var loaded = await _settingsLoader.LoadAsync();
         if (_closing) return;
-        var code = _text.Catalog.Resolve(language.Code, CultureInfo.CurrentUICulture.Name);
+        ApplyLoadedSettings(loaded, reloaded: false, _monitor.History.Generation);
+    }
+
+    private void ApplyLoadedSettings(LoadedSettings loaded, bool reloaded, long generation)
+    {
+        var code = loaded.Catalog.Resolve(loaded.Language.Code, CultureInfo.CurrentUICulture.Name);
+        _text.ReplaceCatalog(loaded.Catalog, code);
         ApplyLanguagePicker(code);
-        _languageReady = true;
-        var folder = await UpdateFolderAsync(null);
-        if (_closing) return;
-        _folderReady = true;
-        var naming = await _namingPreferences.LoadAsync();
-        if (_closing) return;
-        ApplyNamingState(naming.State);
-        _namingReady = true;
-        var image = await _imagePreferences.LoadAsync();
-        if (_closing) return;
-        ApplyImageOptions(image.Settings);
-        _imageReady = true;
-        if (naming.Notice is not null) ShowNamingWarning(naming.Notice, _monitor.History.Generation);
-        var languageNotices = _text.Catalog.Notices.ToList();
-        if (language.Notice is not null) languageNotices.Add(language.Notice);
-        if (language.Code is not null && !language.Code.Equals(code, StringComparison.OrdinalIgnoreCase))
-            languageNotices.Add(new("LanguageUnavailable", language.Code));
-        if (languageNotices.Count > 0) ShowLanguageNotices(languageNotices, _monitor.History.Generation);
-        if (image.Notices.Count > 0)
+        FolderPath.Text = loaded.Folder.Folder;
+        ApplyNamingState(loaded.Naming.State);
+        ApplyImageOptions(loaded.Image.Settings);
+        _savedFolder = loaded.Folder.Folder;
+        _savedNaming = loaded.Naming.State;
+        _savedImage = loaded.Image.Settings;
+        _savedLanguage = code;
+        _languageReady = _folderReady = _namingReady = _imageReady = true;
+        var languageNotices = loaded.Catalog.Notices.ToList();
+        if (loaded.Language.Notice is not null) languageNotices.Add(loaded.Language.Notice);
+        if (loaded.Language.Code is not null && !loaded.Language.Code.Equals(code, StringComparison.OrdinalIgnoreCase))
+            languageNotices.Add(new("LanguageUnavailable", loaded.Language.Code));
+        if (reloaded)
         {
-            var notices = image.Notices.Concat(folder.Notices).Concat(languageNotices).ToList();
-            if (naming.Notice is not null) notices.Add(naming.Notice);
-            ShowImageNotices(notices, _monitor.History.Generation);
+            var notices = loaded.Folder.Notices.Concat(languageNotices).Concat(loaded.Image.Notices).ToList();
+            if (loaded.Naming.Notice is not null) notices.Add(loaded.Naming.Notice);
+            if (_monitor.History.IsCurrent(generation))
+            {
+                _settingsTitle = "ReloadSettings";
+                _settingsNotice = notices.Count == 0 ? new("SettingsReloaded") : new("Raw", new UiMessageList(notices));
+                SettingsMessage.Title = _text[_settingsTitle];
+                SettingsMessage.Message = _settingsNotice.Render(_text);
+                SettingsMessage.Severity = !loaded.Folder.CanUse ? InfoBarSeverity.Error : notices.Count > 0 ? InfoBarSeverity.Warning : InfoBarSeverity.Success;
+                SettingsMessage.IsOpen = true;
+            }
         }
-        if (!_closing) SetControls();
+        else
+        {
+            _settingsTitle = loaded.Folder.CanUse ? "FolderSettings" : "FolderUnavailable";
+            _settingsNotice = new("Raw", new UiMessageList(loaded.Folder.Notices));
+            SettingsMessage.Title = _text[_settingsTitle];
+            SettingsMessage.Message = _settingsNotice.Render(_text);
+            SettingsMessage.Severity = loaded.Folder.CanUse ? InfoBarSeverity.Warning : InfoBarSeverity.Error;
+            SettingsMessage.IsOpen = loaded.Folder.Notices.Count > 0;
+            if (loaded.Naming.Notice is not null) ShowNamingWarning(loaded.Naming.Notice, generation);
+            if (languageNotices.Count > 0) ShowLanguageNotices(languageNotices, generation);
+            if (loaded.Image.Notices.Count > 0)
+            {
+                var notices = loaded.Image.Notices.Concat(loaded.Folder.Notices).Concat(languageNotices).ToList();
+                if (loaded.Naming.Notice is not null) notices.Add(loaded.Naming.Notice);
+                ShowImageNotices(notices, generation);
+            }
+        }
+        SetControls();
+    }
+
+    private bool HasUnsavedSettings() => FolderPath.Text != _savedFolder ||
+        new ImageSettings((ImageFormat)FormatPicker.SelectedIndex, (int)Math.Round(JpegQuality.Value)) != _savedImage ||
+        _text.Language.Code != _savedLanguage || RuleFormula.Text != (_savedNaming.Selected is null ? "" : _savedNaming.Formula) ||
+        PresetName.Text != (_savedNaming.Selected?.Name ?? "") ||
+        _namingState.SelectedPresetId != _savedNaming.SelectedPresetId || !_namingState.Presets.SequenceEqual(_savedNaming.Presets);
+
+    private Task AwaitSettingsWritesAsync() => Task.WhenAll(new Task?[]
+        { _folderUpdate, _namingUpdate, _languageUpdate, _imageUpdate }.OfType<Task>());
+
+    private void ReloadSettings_Click(object sender, RoutedEventArgs args)
+    {
+        if (_reloading || _closing || _watching || _starting || _stopping || _presetBusy || _browseBusy || _languageBusy ||
+            _detailsOpen || !_folderReady || !_namingReady || !_imageReady) return;
+        _reloadTask = ReloadSettingsAsync();
+    }
+
+    private async Task ReloadSettingsAsync()
+    {
+        _reloading = true;
+        _imageSave.Stop();
+        SetControls();
+        var generation = _monitor.History.Generation;
+        var applied = false;
+        try
+        {
+            // Already submitted writes finish first. Unsubmitted edits are never flushed by reload.
+            await AwaitSettingsWritesAsync();
+            if (_closing) return;
+            if (HasUnsavedSettings() && !await ConfirmPresetAsync(_text["UnsavedSettingsTitle"], _text["UnsavedSettingsQuestion"],
+                _text["DiscardAndReload"], "ReloadConfirmation")) return;
+            if (_closing) return;
+            _imageDirty = false;
+            _imageRevision++;
+            _folderRevision++;
+            _statusKey = "ReloadingSettings";
+            LanguageChanged(this, EventArgs.Empty);
+            await _monitor.DrainAsync();
+            if (_closing) return;
+            var loaded = await _settingsLoader.LoadAsync();
+            if (_closing) return;
+            _statusKey = "Stopped";
+            ApplyLoadedSettings(loaded, reloaded: true, generation);
+            LanguageChanged(this, EventArgs.Empty);
+            applied = true;
+        }
+        catch (Exception exception) { ShowResult("ReloadFailed", UiMessage.FromException(exception), InfoBarSeverity.Error, generation); }
+        finally
+        {
+            _reloading = false;
+            if (!applied && _statusKey == "ReloadingSettings") _statusKey = "Stopped";
+            if (!_closing)
+            {
+                if (_imageDirty) _imageSave.Start();
+                LanguageChanged(this, EventArgs.Empty);
+                SetControls();
+            }
+        }
+    }
+
+    private void Reload_GettingFocus(UIElement sender, Microsoft.UI.Xaml.Input.GettingFocusEventArgs args) => _reloadFocus = true;
+
+    private void Reload_LostFocus(object sender, RoutedEventArgs args)
+    {
+        _reloadFocus = false;
+        if (_reloading || _closing) return;
+        // Tabbing away without invoking reload restores normal manual-folder persistence.
+        DispatcherQueue.TryEnqueue(async () =>
+        {
+            if (!_reloading && !_closing && !_watching && !_starting && FolderPath.Text != _savedFolder)
+                await UpdateFolderAsync(FolderPath.Text);
+        });
     }
 
     private void ApplyImageOptions(ImageSettings settings)
@@ -137,7 +245,7 @@ public sealed partial class MainWindow : Window
 
     private void ScheduleImageOptionsSave(bool immediate = false)
     {
-        if (!_imageReady || _applyingImageOptions || _closing || _watching || _starting || _stopping) return;
+        if (!_imageReady || _applyingImageOptions || _reloading || _closing || _watching || _starting || _stopping) return;
         _imageDirty = true;
         _imageRevision++;
         _imageGeneration = _monitor.History.Generation;
@@ -160,7 +268,8 @@ public sealed partial class MainWindow : Window
         {
             if (previous is not null) await previous;
             var result = await _imagePreferences.SaveAsync(settings);
-            if (!_closing && revision == _imageRevision && _monitor.History.IsCurrent(generation))
+            if (result.Notices.Count == 0) _savedImage = settings;
+            if (!_closing && !_reloading && revision == _imageRevision && _monitor.History.IsCurrent(generation))
             {
                 if (result.Notices.Count > 0) ShowImageNotices(result.Notices, generation);
                 else if (_settingsTitle == "ImageOptionsSettings")
@@ -203,7 +312,7 @@ public sealed partial class MainWindow : Window
     {
         RootGrid.Language = _text.Language.Code;
         MonitoringStatus.Text = _text[_statusKey];
-        MonitoringHelp.Text = _text[_watching ? "MonitoringHelp" : _statusKey == "Stopped" ? "StoppedHelp" : "ReadyHelp"];
+        MonitoringHelp.Text = _text[_statusKey == "ReloadingSettings" ? "ReloadSettingsHelp" : _watching ? "MonitoringHelp" : _statusKey == "Stopped" ? "StoppedHelp" : "ReadyHelp"];
         PreviewCaption.Text = _caption.Render(_text);
         if (_settingsTitle is not null) SettingsMessage.Title = _text[_settingsTitle];
         if (_settingsNotice is not null) SettingsMessage.Message = _settingsNotice.Render(_text);
@@ -221,13 +330,15 @@ public sealed partial class MainWindow : Window
         async Task<LanguagePreference> SaveAsync()
         {
             if (previous is not null) await previous;
-            return await _languagePreferences.SaveAsync(code);
+            var result = await _languagePreferences.SaveAsync(code);
+            if (result.Notice is null) _savedLanguage = code;
+            return result;
         }
     }
 
     private async void Language_SelectionChanged(object sender, SelectionChangedEventArgs args)
     {
-        if (_updatingLanguage || !_languageReady || _languageBusy || _closing ||
+        if (_updatingLanguage || !_languageReady || _languageBusy || _reloading || _closing ||
             LanguagePicker.SelectedItem is not LanguageOption language) return;
         _languageBusy = true;
         var generation = _monitor.History.Generation;
@@ -288,8 +399,9 @@ public sealed partial class MainWindow : Window
         {
             if (previous is not null) await previous;
             var result = await _namingPreferences.SaveAsync(state);
-            if (!_closing && result.Notice is not null) ShowNamingWarning(result.Notice, generation);
-            else if (!_closing && _monitor.History.IsCurrent(generation) && _settingsTitle == "PresetSettings")
+            if (result.Notice is null) _savedNaming = state;
+            if (!_closing && !_reloading && result.Notice is not null) ShowNamingWarning(result.Notice, generation);
+            else if (!_closing && !_reloading && _monitor.History.IsCurrent(generation) && _settingsTitle == "PresetSettings")
             {
                 _settingsTitle = null;
                 _settingsNotice = null;
@@ -314,7 +426,7 @@ public sealed partial class MainWindow : Window
 
     private async void Preset_SelectionChanged(object sender, SelectionChangedEventArgs args)
     {
-        if (_updatingNaming || !_namingReady || _watching || _starting || _closing ||
+        if (_updatingNaming || !_namingReady || _watching || _starting || _reloading || _closing ||
             PresetPicker.SelectedItem is not NamingPreset preset) return;
         RuleFormula.Text = preset.Formula;
         PresetName.Text = preset.Name;
@@ -355,7 +467,7 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async Task<bool> ConfirmPresetAsync(string title, string message, string action)
+    private async Task<bool> ConfirmPresetAsync(string title, string message, string action, string id = "PresetConfirmation")
     {
         if (_detailsOpen || _closing) return false;
         var dialog = new ContentDialog
@@ -364,7 +476,7 @@ public sealed partial class MainWindow : Window
             Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
             PrimaryButtonText = action, CloseButtonText = _text["Cancel"], DefaultButton = ContentDialogButton.Close
         };
-        AutomationProperties.SetAutomationId(dialog, "PresetConfirmation");
+        AutomationProperties.SetAutomationId(dialog, id);
         _presetDialog = dialog;
         try { return await dialog.ShowAsync() == ContentDialogResult.Primary; }
         finally { _presetDialog = null; }
@@ -382,7 +494,7 @@ public sealed partial class MainWindow : Window
 
     private async Task ChangeProfileAsync(Func<NamingState> change)
     {
-        if (_presetBusy || _closing || _watching || _starting || !_namingReady) return;
+        if (_presetBusy || _reloading || _closing || _watching || _starting || !_namingReady) return;
         _presetBusy = true;
         SetControls();
         var generation = _monitor.History.Generation;
@@ -398,7 +510,7 @@ public sealed partial class MainWindow : Window
 
     private async void DeletePreset_Click(object sender, RoutedEventArgs args)
     {
-        if (_presetBusy || _closing || _watching || _starting || !_namingReady ||
+        if (_presetBusy || _reloading || _closing || _watching || _starting || !_namingReady ||
             PresetPicker.SelectedItem is not NamingPreset preset) return;
         _presetBusy = true;
         SetControls();
@@ -426,7 +538,8 @@ public sealed partial class MainWindow : Window
             // Serialize settings writes independently of the image-saving worker.
             if (previous is not null) await previous;
             var result = input is null ? await _preferences.LoadAsync() : await _preferences.SaveAsync(input);
-            if (!_closing && revision == _folderRevision && (input is null || FolderPath.Text == input))
+            if (!result.Notices.Any(n => n.Key is "FolderWriteFailed" or "FolderReadFailed")) _savedFolder = result.Folder;
+            if (!_closing && !_reloading && revision == _folderRevision && (input is null || FolderPath.Text == input))
             {
                 FolderPath.Text = result.Folder;
                 if (_monitor.History.IsCurrent(generation))
@@ -445,13 +558,13 @@ public sealed partial class MainWindow : Window
 
     private async void FolderPath_LostFocus(object sender, RoutedEventArgs args)
     {
-        if (!_folderReady || _closing || _starting || _watching) return;
+        if (!_folderReady || _reloadFocus || _reloading || _closing || _starting || _watching) return;
         await UpdateFolderAsync(FolderPath.Text);
     }
 
     private async void Start_Click(object sender, RoutedEventArgs args)
     {
-        if (_closing || _starting || _presetBusy || !_folderReady || !_namingReady || !_imageReady || !_namingValid) return;
+        if (_closing || _reloading || _browseBusy || _starting || _presetBusy || !_folderReady || !_namingReady || !_imageReady || !_namingValid) return;
         var generation = _monitor.History.Generation;
         _starting = true;
         SetControls();
@@ -509,13 +622,16 @@ public sealed partial class MainWindow : Window
 
     private void SetControls()
     {
-        var editable = _folderReady && _namingReady && _imageReady && !_watching && !_starting && !_presetBusy;
+        var editable = _folderReady && _namingReady && _imageReady && !_watching && !_starting && !_stopping && !_reloading && !_browseBusy && !_presetBusy && !_closing;
         var hasProfile = PresetPicker.SelectedItem is NamingPreset;
-        LanguagePicker.IsEnabled = _languageReady && !_languageBusy && !_closing;
+        LanguagePicker.IsEnabled = _languageReady && !_languageBusy && !_reloading && !_closing;
+        ReloadSettingsButton.IsEnabled = _languageReady && _folderReady && _namingReady && _imageReady &&
+            !_reloading && !_watching && !_starting && !_stopping && !_presetBusy && !_languageBusy && !_browseBusy && !_closing;
         StartButton.IsEnabled = editable && _namingValid;
         StopButton.IsEnabled = _watching && !_stopping;
         FolderPath.IsEnabled = editable;
         BrowseButton.IsEnabled = editable;
+        OpenFolderButton.IsEnabled = !_reloading && !_closing;
         FormatPicker.IsEnabled = editable;
         JpegQuality.IsEnabled = editable;
         PresetPicker.IsEnabled = editable;
@@ -574,7 +690,9 @@ public sealed partial class MainWindow : Window
 
     private async void Browse_Click(object sender, RoutedEventArgs args)
     {
-        if (_closing) return;
+        if (_closing || _reloading || _browseBusy) return;
+        _browseBusy = true;
+        SetControls();
         var generation = _monitor.History.Generation;
         try
         {
@@ -591,11 +709,12 @@ public sealed partial class MainWindow : Window
             }
         }
         catch (Exception exception) { ShowResult("ChooseFolderFailed", UiMessage.FromException(exception), InfoBarSeverity.Error, generation); }
+        finally { _browseBusy = false; if (!_closing) SetControls(); }
     }
 
     private async void OpenFolder_Click(object sender, RoutedEventArgs args)
     {
-        if (_closing) return;
+        if (_closing || _reloading) return;
         var generation = _monitor.History.Generation;
         try
         {
@@ -705,7 +824,7 @@ public sealed partial class MainWindow : Window
 
     private async void Details_Click(object sender, RoutedEventArgs args)
     {
-        if (_detailsOpen || _presetBusy || _closing) return;
+        if (_detailsOpen || _presetBusy || _reloading || _closing) return;
         var result = ((FrameworkElement)sender).DataContext switch
         { HistoryItem history => history.Result, QueueItem queue => queue.Job.Result, _ => null };
         if (result is null) return;
@@ -737,6 +856,7 @@ public sealed partial class MainWindow : Window
         if (_allowClose) return;
         args.Cancel = true;
         if (_closing) return;
+        var interruptedReload = _reloading;
         _closing = true;
         RootPanel.IsHitTestVisible = false;
         _statusKey = "Finishing";
@@ -747,10 +867,11 @@ public sealed partial class MainWindow : Window
         _presetDialog?.Hide();
         try
         {
-            await FlushImageOptionsAsync();
-            if (_folderReady && !_watching && !_starting) await UpdateFolderAsync(FolderPath.Text);
+            if (_reloadTask is not null) await _reloadTask;
+            if (!interruptedReload) await FlushImageOptionsAsync();
+            if (!interruptedReload && _folderReady && !_watching && !_starting) await UpdateFolderAsync(FolderPath.Text);
             if (_folderUpdate is not null) await _folderUpdate;
-            if (_namingReady && !_watching && !_starting && !_presetBusy && (_namingValid || _namingState.Selected is null)) await SaveNamingAsync(CurrentNamingState());
+            if (!interruptedReload && _namingReady && !_watching && !_starting && !_presetBusy && (_namingValid || _namingState.Selected is null)) await SaveNamingAsync(CurrentNamingState());
             if (_namingUpdate is not null) await _namingUpdate;
             if (_languageUpdate is not null) await _languageUpdate;
             await _monitor.DisposeAsync();

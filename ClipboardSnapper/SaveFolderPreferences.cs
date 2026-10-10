@@ -17,15 +17,17 @@ public sealed class SaveFolderPreferences(string configPath, string defaultFolde
 
     public Task<FolderPreference> LoadAsync() => Task.Run(() =>
     {
-        string? saved;
-        try { saved = _config.Read(document => document.Get("Storage", "SaveFolder")); }
-        catch (Exception exception) when (IsStorageError(exception))
-        {
-            return Resolve(DefaultFolder, false,
-                new UiMessage("FolderReadFailed", UiMessage.FromException(exception)));
-        }
-        return Resolve(saved ?? DefaultFolder, false, null);
+        try { return _config.Read(Read); }
+        catch (Exception exception) when (IsStorageError(exception)) { return ReadFailure(exception); }
     });
+
+    internal FolderPreference ReadFailure(Exception exception) => Resolve(DefaultFolder, false,
+        new UiMessage("FolderReadFailed", UiMessage.FromException(exception)));
+    internal FolderPreference Read(IniDocument document)
+    {
+        try { return Resolve(document.Get("Storage", "SaveFolder") ?? DefaultFolder, false, null); }
+        catch (Exception exception) when (IsStorageError(exception)) { return ReadFailure(exception); }
+    }
 
     public Task<FolderPreference> SaveAsync(string folder) => Task.Run(() => Resolve(folder, true, null));
 
