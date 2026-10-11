@@ -1,4 +1,12 @@
 # Runs inside FeatureSmoke.ps1 against the real published app.
+Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public static class InstanceFixture {
+    [DllImport("ntdll.dll")] public static extern int NtSuspendProcess(IntPtr handle);
+    [DllImport("ntdll.dll")] public static extern int NtResumeProcess(IntPtr handle);
+}
+'@
 $instanceLaunches = [Collections.Generic.List[Diagnostics.Process]]::new()
 function Launch-Again {
     $launch = Start-Process (Join-Path $publish 'ClipboardSnapper.exe') -WorkingDirectory $testFolder -PassThru
@@ -147,6 +155,35 @@ try {
     Start-App
     Repeat-Launch
 
+    # Suspend only our idle test owner, including its activation threads, to exercise a live unreachable owner.
+    $unresponsiveConfig = Read-Config
+    $unresponsiveFiles = @(Get-ChildItem $testFolder -File).Count
+    $ownerHandle = $process.Handle
+    if ([InstanceFixture]::NtSuspendProcess($ownerHandle) -ne 0) { throw 'Could not suspend the idle test owner.' }
+    try {
+        $unreachable = Launch-Again
+        Wait-For { $unreachable.Refresh(); $unreachable.MainWindowHandle -ne [IntPtr]::Zero } 'bounded activation failure dialog'
+        $errorWindow = $unreachable.MainWindowHandle
+        $class = [Text.StringBuilder]::new(256)
+        [void][DesktopNative]::GetClassName($errorWindow, $class, $class.Capacity)
+        if ($class.ToString() -ne '#32770') { throw 'Unreachable owner caused another application window instead of an error dialog.' }
+        $errorRoot = [System.Windows.Automation.AutomationElement]::FromHandle($errorWindow)
+        $errorTexts = $errorRoot.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+            [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                [System.Windows.Automation.ControlType]::Text))
+        if (-not (($errorTexts | ForEach-Object { $_.Current.Name }) -join ' ').Contains('ClipboardSnapper')) {
+            throw 'The forwarding failure did not explain the application error.'
+        }
+        Click-PickerButton $errorWindow 1
+        if (-not $unreachable.WaitForExit(15000) -or $unreachable.ExitCode -ne 1) { throw 'Unreachable-owner launch did not report a nonzero exit.' }
+        if ((Read-Config) -ne $unresponsiveConfig -or @(Get-ChildItem $testFolder -File).Count -ne $unresponsiveFiles) {
+            throw 'Failed forwarding wrote preferences or created capture files.'
+        }
+    } finally {
+        if ([InstanceFixture]::NtResumeProcess($ownerHandle) -ne 0) { throw 'Could not resume the idle test owner.' }
+    }
+    Repeat-Launch
+
     # Observe the SDK identity boundary rather than assuming a global cross-directory mutex.
     [void](New-Item -ItemType Directory -Path $scopeFolder)
     Copy-Item (Join-Path $publish '*') $scopeFolder -Recurse
@@ -174,7 +211,7 @@ try {
     }
     Repeat-Launch
     Clear-History
-    Write-Output '::notice::Single-instance UI passed: forwarding processes exit without sampled windows, external config remains untouched, minimized/maximized restoration, unchanged owner/history/preview/counters/clipboard, no duplicate saves, delayed acquisition and closing drain, simultaneous startup, normal/crash relaunch, and copied-directory SDK scope.'
+    Write-Output '::notice::Single-instance UI passed: forwarding processes exit without sampled windows, external config remains untouched, minimized/maximized restoration, unchanged owner/history/preview/counters/clipboard, no duplicate saves, delayed acquisition and closing drain, simultaneous startup, normal/crash relaunch, bounded live-owner timeout/error without competing work, and copied-directory SDK scope.'
 } finally {
     [DelayedClipboard]::Complete(); [DelayedClipboard]::Stop()
     foreach ($launch in $instanceLaunches) {
