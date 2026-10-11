@@ -112,12 +112,16 @@ try {
     $env:DOTNET_HOST_TRACEFILE = $oldHostTraceFile
 
     # No external packs are needed for Korean; settings remain beside the original EXE.
-    $preserved = "; Keep settings across replacement`r`n[Appearance]`r`nLanguage=ko`r`n[Updates]`r`nEnabled=false`r`n"
+    $imageFolder = Join-Path $fixture 'saved images'
+    New-Item -ItemType Directory -Path $imageFolder | Out-Null
+    $preserved = "; Keep settings across replacement`r`n[Appearance]`r`nLanguage=ko`r`n[Updates]`r`nEnabled=false`r`n[Storage]`r`nSaveFolder=$imageFolder`r`nImageFormat=PNG`r`nJpegQuality=90`r`n"
     [IO.File]::WriteAllText($config, $preserved, [Text.UTF8Encoding]::new($false))
     Start-Bundle
     if ((Find-BundleControl 'StartButton').Current.Name -ne '시작') { throw 'Embedded Korean did not load without external language files.' }
     Close-Bundle
-    if ([IO.File]::ReadAllText($config) -ne $preserved) { throw 'Restart rewrote portable settings.' }
+    if ([IO.File]::ReadAllText($config) -ne $preserved) {
+        throw "Restart changed an existing preference fixture. Actual: $([IO.File]::ReadAllText($config)). Expected: $preserved"
+    }
 
     # Delete only this test's stopped cache, replace the EXE, and repeat a cold launch.
     Remove-Item $cache -Recurse -Force
