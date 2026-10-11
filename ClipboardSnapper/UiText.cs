@@ -87,6 +87,7 @@ public sealed record LanguageCatalog(IReadOnlyList<LanguageOption> Languages, IR
 public sealed class UiText : INotifyPropertyChanged
 {
     private static LanguageOption? _startupEnglish;
+    internal static bool HasStartupEnglish => _startupEnglish is not null;
     internal static LanguageOption StartupEnglish => _startupEnglish
         ?? throw new InvalidOperationException("Load lang/en.json before starting the application.");
     internal static IReadOnlyDictionary<string, string> EnglishStrings => StartupEnglish.Strings;
