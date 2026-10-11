@@ -231,10 +231,9 @@ try {
         if (-not $errorText.Contains('ClipboardSnapper')) {
             throw "The forwarding failure did not explain the application error. Dialog controls: $errorText"
         }
-        $errorOk = Find-Name $errorRoot 'OK'
-        if ($null -eq $errorOk) { $errorOk = Find-Name $errorRoot '확인' }
-        if ($null -eq $errorOk) { throw "Activation error acknowledgement is missing. Dialog controls: $errorText" }
-        Invoke-Control $errorOk
+        # Native message-box controls can be nested text peers without an Invoke pattern.
+        # Dismiss the verified diagnostic dialog using its standard window-close message.
+        [void][DesktopNative]::SendMessage($errorWindow, 0x10, [IntPtr]::Zero, [IntPtr]::Zero)
         if (-not $unreachable.WaitForExit(15000) -or $unreachable.ExitCode -ne 1) { throw 'Unreachable-owner launch did not report a nonzero exit.' }
         if ((Read-Config) -ne $unresponsiveConfig -or @(Get-ChildItem $testFolder -File).Count -ne $unresponsiveFiles) {
             throw 'Failed forwarding wrote preferences or created capture files.'
