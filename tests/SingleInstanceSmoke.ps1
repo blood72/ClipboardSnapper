@@ -1,12 +1,55 @@
 ﻿# Runs inside FeatureSmoke.ps1 against the real published app.
 Add-Type @'
 using System;
+using System.IO;
+using System.Drawing;
+using System.Windows.Forms;
 using System.Runtime.InteropServices;
 public static class InstanceFixture {
     [DllImport("ntdll.dll")] public static extern int NtSuspendProcess(IntPtr handle);
     [DllImport("ntdll.dll")] public static extern int NtResumeProcess(IntPtr handle);
+    [DllImport("user32.dll", SetLastError = true)] private static extern bool OpenClipboard(IntPtr owner);
+    [DllImport("user32.dll")] private static extern bool EmptyClipboard();
+    [DllImport("user32.dll")] private static extern bool CloseClipboard();
+    [DllImport("user32.dll", SetLastError = true)] private static extern IntPtr SetClipboardData(uint format, IntPtr data);
+    [DllImport("kernel32.dll")] private static extern IntPtr GlobalAlloc(uint flags, UIntPtr size);
+    [DllImport("kernel32.dll")] private static extern IntPtr GlobalLock(IntPtr memory);
+    [DllImport("kernel32.dll")] private static extern bool GlobalUnlock(IntPtr memory);
+    [DllImport("kernel32.dll")] private static extern IntPtr GlobalFree(IntPtr memory);
+
+    public static void CopyImage()
+    {
+        // Publish one complete native DIB; do not generate additional OLE delayed-render/flush changes.
+        using (var bitmap = new Bitmap(32, 24))
+        using (var graphics = Graphics.FromImage(bitmap))
+        using (var stream = new MemoryStream())
+        using (var owner = new Control())
+        {
+            graphics.Clear(Color.CornflowerBlue);
+            bitmap.Save(stream, System.Drawing.Imaging.ImageFormat.Bmp);
+            var bytes = stream.ToArray();
+            var memory = GlobalAlloc(2, (UIntPtr)(uint)(bytes.Length - 14));
+            if (memory == IntPtr.Zero) throw new InvalidOperationException("Could not allocate the native image fixture.");
+            try
+            {
+                var pointer = GlobalLock(memory);
+                if (pointer == IntPtr.Zero) throw new InvalidOperationException("Could not lock the native image fixture.");
+                try { Marshal.Copy(bytes, 14, pointer, bytes.Length - 14); }
+                finally { GlobalUnlock(memory); }
+                if (!OpenClipboard(owner.Handle)) throw new System.ComponentModel.Win32Exception();
+                try
+                {
+                    if (!EmptyClipboard() || SetClipboardData(8, memory) == IntPtr.Zero)
+                        throw new System.ComponentModel.Win32Exception();
+                    memory = IntPtr.Zero; // Windows owns CF_DIB memory after a successful transfer.
+                }
+                finally { CloseClipboard(); }
+            }
+            finally { if (memory != IntPtr.Zero) GlobalFree(memory); }
+        }
+    }
 }
-'@
+'@ -ReferencedAssemblies System.Windows.Forms,System.Drawing
 $instanceLaunches = [Collections.Generic.List[Diagnostics.Process]]::new()
 function Launch-Again {
     $launch = Start-Process (Join-Path $publish 'ClipboardSnapper.exe') -WorkingDirectory $testFolder -PassThru
@@ -81,7 +124,7 @@ try {
     Clear-History
     Start-Monitoring
     $beforeImages = @(Get-ChildItem $testFolder -Filter '*.png').Count
-    Copy-Image
+    [InstanceFixture]::CopyImage()
     Wait-For { (Find-Control 'QueueOutcomes').Current.Name -eq 'Saved: 1 · Failed: 0' -and $null -ne (Find-Control 'PreviewImage') } 'first monitored image and preview'
     $caption = (Find-Control 'PreviewCaption').Current.Name
     $monitorConfig = Read-Config
@@ -95,7 +138,7 @@ try {
         $null -eq (Find-Name (Find-Control 'HistoryList') 'Saved')) {
         throw 'Repeated launches reset monitoring/history/preview/counters/settings or touched the clipboard.'
     }
-    Copy-Image
+    [InstanceFixture]::CopyImage()
     Wait-For { (Find-Control 'QueueOutcomes').Current.Name -eq 'Saved: 2 · Failed: 0' } 'monitoring continues after repeated launches'
     if (@(Get-ChildItem $testFolder -Filter '*.png').Count -ne $beforeImages + 2) { throw 'Duplicate instances saved the same image independently.' }
 
