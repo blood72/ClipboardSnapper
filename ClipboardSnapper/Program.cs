@@ -65,6 +65,7 @@ internal static class Program
         }
         catch (Exception exception)
         {
+            Console.Error.WriteLine(exception);
             var catalog = LanguageCatalog.Load(PortableConfig.LanguageDirectory);
             var code = catalog.Resolve(null, CultureInfo.CurrentUICulture.Name);
             var language = catalog.Languages.First(option => option.Code.Equals(code, StringComparison.OrdinalIgnoreCase));

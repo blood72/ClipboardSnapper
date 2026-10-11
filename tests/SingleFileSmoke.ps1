@@ -38,10 +38,13 @@ function Wait-Bundle($Check, [string]$Description) {
             "$($_.Current.ControlType.ProgrammaticName): $($_.Current.Name) / $($_.Current.AutomationId)"
         }) -join ' | '
     } else { 'No automation root.' }
-    throw "Timed out waiting for bundled $Description. Window: $($process.MainWindowTitle). Controls: $details"
+    $diagnostic = if (Test-Path (Join-Path $fixture 'application-error.txt')) { [IO.File]::ReadAllText((Join-Path $fixture 'application-error.txt')) } else { '' }
+    $modules = ($process.Modules | ForEach-Object { $_.FileName }) -join ' | '
+    $extracted = (Get-ChildItem $cache -Recurse -File | Where-Object { $_.Extension -in @('.dll', '.pri', '.manifest') } | ForEach-Object { $_.FullName }) -join ' | '
+    throw "Timed out waiting for bundled $Description. Window: $($process.MainWindowTitle). Controls: $details. Diagnostic: $diagnostic. Modules: $modules. Extracted files: $extracted"
 }
 function Start-Bundle {
-    $script:process = Start-Process $exe -WorkingDirectory $working -PassThru
+    $script:process = Start-Process $exe -WorkingDirectory $working -PassThru -RedirectStandardError (Join-Path $fixture 'application-error.txt')
     Wait-Bundle { $process.Refresh(); $process.MainWindowHandle -ne [IntPtr]::Zero } 'window handle'
     if ($process.MainWindowTitle -ne 'ClipboardSnapper') { throw 'Incorrect bundled window title.' }
     $script:root = [System.Windows.Automation.AutomationElement]::FromHandle($process.MainWindowHandle)
