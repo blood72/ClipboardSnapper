@@ -38,10 +38,13 @@ function Wait-Bundle($Check, [string]$Description) {
             "$($_.Current.ControlType.ProgrammaticName): $($_.Current.Name) / $($_.Current.AutomationId)"
         }) -join ' | '
     } else { 'No automation root.' }
-    $diagnostic = if (Test-Path (Join-Path $fixture 'application-error.txt')) { [IO.File]::ReadAllText((Join-Path $fixture 'application-error.txt')) } else { '' }
+    $title = $process.MainWindowTitle
     $modules = ($process.Modules | ForEach-Object { $_.FileName }) -join ' | '
     $extracted = (Get-ChildItem $cache -Recurse -File | Where-Object { $_.Extension -in @('.dll', '.pri', '.manifest') } | ForEach-Object { $_.FullName }) -join ' | '
-    throw "Timed out waiting for bundled $Description. Window: $($process.MainWindowTitle). Controls: $details. Diagnostic: $diagnostic. Modules: $modules. Extracted files: $extracted"
+    Stop-Process -Id $process.Id
+    [void]$process.WaitForExit(15000)
+    $diagnostic = if (Test-Path (Join-Path $fixture 'application-error.txt')) { [IO.File]::ReadAllText((Join-Path $fixture 'application-error.txt')) } else { '' }
+    throw "Timed out waiting for bundled $Description. Window: $title. Controls: $details. Diagnostic: $diagnostic. Modules: $modules. Extracted files: $extracted"
 }
 function Start-Bundle {
     $script:process = Start-Process $exe -WorkingDirectory $working -PassThru -RedirectStandardError (Join-Path $fixture 'application-error.txt')
@@ -52,7 +55,7 @@ function Start-Bundle {
     foreach ($moduleName in @('coreclr.dll', 'Microsoft.UI.Xaml.dll', 'vcruntime140.dll', 'msvcp140.dll')) {
         $module = $process.Modules | Where-Object ModuleName -eq $moduleName | Select-Object -First 1
         if ($null -eq $module -or -not $module.FileName.StartsWith($cache + '\', [StringComparison]::OrdinalIgnoreCase)) {
-            throw "Bundled native module was not loaded from the isolated extraction cache: $moduleName"
+            throw "Bundled native module was not loaded from the isolated extraction cache: $moduleName. Actual: $($module.FileName). Expected root: $cache"
         }
     }
 }
