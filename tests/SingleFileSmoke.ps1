@@ -32,7 +32,13 @@ function Wait-Bundle($Check, [string]$Description) {
         try { if (& $Check) { return } } catch [System.Windows.Automation.ElementNotAvailableException] { }
         Start-Sleep -Milliseconds 100
     } while ([DateTime]::UtcNow -lt $deadline)
-    throw "Timed out waiting for bundled $Description."
+    $details = if ($null -ne $script:root) {
+        ($script:root.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+            [System.Windows.Automation.Condition]::TrueCondition) | Select-Object -First 100 | ForEach-Object {
+            "$($_.Current.ControlType.ProgrammaticName): $($_.Current.Name) / $($_.Current.AutomationId)"
+        }) -join ' | '
+    } else { 'No automation root.' }
+    throw "Timed out waiting for bundled $Description. Window: $($process.MainWindowTitle). Controls: $details"
 }
 function Start-Bundle {
     $script:process = Start-Process $exe -WorkingDirectory $working -PassThru
