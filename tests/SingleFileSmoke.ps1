@@ -79,7 +79,13 @@ function Start-Bundle {
 }
 function Close-Bundle {
     ([System.Windows.Automation.WindowPattern]$root.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern)).Close()
-    if (-not $process.WaitForExit(15000) -or $process.ExitCode -ne 0) { throw 'Bundled app failed to close normally.' }
+    $exited = $process.WaitForExit(15000)
+    if (-not $exited -or $process.ExitCode -ne 0) {
+        if (-not $exited) { Stop-Process -Id $process.Id; [void]$process.WaitForExit(15000) }
+        $diagnostic = [IO.File]::ReadAllText((Join-Path $fixture 'application-error.txt'))
+        $trace = (Get-Content (Join-Path $fixture 'host-trace.txt') -ErrorAction SilentlyContinue | Select-Object -Last 15) -join ' | '
+        throw "Bundled app failed to close normally. Exited: $exited. Code: $($process.ExitCode). Diagnostic: $diagnostic. Host: $trace"
+    }
     $script:root = $null
 }
 try {
