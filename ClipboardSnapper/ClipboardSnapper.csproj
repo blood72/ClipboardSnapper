@@ -20,6 +20,9 @@
     <IncludeAllContentForSelfExtract Condition="'$(PublishSingleFile)' == 'true'">true</IncludeAllContentForSelfExtract>
     <IncludeNativeLibrariesForSelfExtract Condition="'$(PublishSingleFile)' == 'true'">true</IncludeNativeLibrariesForSelfExtract>
     <DebugType Condition="'$(PublishSingleFile)' == 'true'">embedded</DebugType>
+    <!-- The two publish modes generate different native manifests and resource indexes. -->
+    <IntermediateOutputPath Condition="'$(PublishSingleFile)' == 'true'">$(BaseIntermediateOutputPath)single-file\$(Configuration)\</IntermediateOutputPath>
+    <OutputPath Condition="'$(PublishSingleFile)' == 'true'">bin\single-file\$(Configuration)\</OutputPath>
     <PublishTrimmed>false</PublishTrimmed>
     <PublishReadyToRun>false</PublishReadyToRun>
     <ImplicitUsings>enable</ImplicitUsings>
