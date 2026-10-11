@@ -23,6 +23,19 @@ $env:DOTNET_HOST_TRACE = '1'
 $env:DOTNET_HOST_TRACEFILE = Join-Path $fixture 'host-trace.txt'
 $process = $null
 $root = $null
+$stderrTask = $null
+
+function Start-BundleProcess {
+    # Keep the native process handle and drain stderr; Windows PowerShell Start-Process
+    # with redirected streams can return an object without a usable exit code.
+    $script:process = [Diagnostics.Process]::new()
+    $process.StartInfo = [Diagnostics.ProcessStartInfo]::new($exe)
+    $process.StartInfo.UseShellExecute = $false
+    $process.StartInfo.WorkingDirectory = $working
+    $process.StartInfo.RedirectStandardError = $true
+    [void]$process.Start()
+    $script:stderrTask = $process.StandardError.ReadToEndAsync()
+}
 
 function Find-BundleControl([string]$Id) {
     $condition = [System.Windows.Automation.PropertyCondition]::new(
@@ -47,11 +60,11 @@ function Wait-Bundle($Check, [string]$Description) {
     $extracted = (Get-ChildItem $cache -Recurse -File | Where-Object { $_.Extension -in @('.dll', '.pri', '.manifest') } | ForEach-Object { $_.FullName }) -join ' | '
     Stop-Process -Id $process.Id
     [void]$process.WaitForExit(15000)
-    $diagnostic = if (Test-Path (Join-Path $fixture 'application-error.txt')) { [IO.File]::ReadAllText((Join-Path $fixture 'application-error.txt')) } else { '' }
+    $diagnostic = $stderrTask.GetAwaiter().GetResult()
     throw "Timed out waiting for bundled $Description. Window: $title. Controls: $details. Diagnostic: $diagnostic. Modules: $modules. Extracted files: $extracted"
 }
 function Start-Bundle {
-    $script:process = Start-Process $exe -WorkingDirectory $working -PassThru -RedirectStandardError (Join-Path $fixture 'application-error.txt')
+    Start-BundleProcess
     Wait-Bundle { $process.Refresh(); $process.MainWindowHandle -ne [IntPtr]::Zero } 'window handle'
     if ($process.MainWindowTitle -ne 'ClipboardSnapper') { throw 'Incorrect bundled window title.' }
     $script:root = [System.Windows.Automation.AutomationElement]::FromHandle($process.MainWindowHandle)
@@ -82,7 +95,7 @@ function Close-Bundle {
     $exited = $process.WaitForExit(15000)
     if (-not $exited -or $process.ExitCode -ne 0) {
         if (-not $exited) { Stop-Process -Id $process.Id; [void]$process.WaitForExit(15000) }
-        $diagnostic = [IO.File]::ReadAllText((Join-Path $fixture 'application-error.txt'))
+        $diagnostic = $stderrTask.GetAwaiter().GetResult()
         $trace = (Get-Content (Join-Path $fixture 'host-trace.txt') -ErrorAction SilentlyContinue | Select-Object -Last 15) -join ' | '
         throw "Bundled app failed to close normally. Exited: $exited. Code: $($process.ExitCode). Diagnostic: $diagnostic. Host: $trace"
     }
@@ -123,10 +136,9 @@ try {
     try {
         $env:DOTNET_BUNDLE_EXTRACT_BASE_DIR = $blockedCache
         $env:DOTNET_DISABLE_GUI_ERRORS = '1'
-        $script:process = Start-Process $exe -WorkingDirectory $working -PassThru `
-            -RedirectStandardError (Join-Path $fixture 'startup-error.txt') -RedirectStandardOutput (Join-Path $fixture 'startup-output.txt')
+        Start-BundleProcess
         if (-not $process.WaitForExit(15000)) { throw 'Blocked extraction did not fail within the startup deadline.' }
-        if ($process.ExitCode -eq 0 -or [string]::IsNullOrWhiteSpace([IO.File]::ReadAllText((Join-Path $fixture 'startup-error.txt')))) {
+        if ($process.ExitCode -eq 0 -or [string]::IsNullOrWhiteSpace($stderrTask.GetAwaiter().GetResult())) {
             throw 'Blocked extraction must return failure with a host diagnostic.'
         }
         if ([IO.File]::ReadAllText($config) -ne $preserved) { throw 'Failed extraction modified user settings.' }
