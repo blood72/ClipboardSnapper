@@ -28,6 +28,8 @@ public static class DesktopNative {
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr handle);
     [DllImport("user32.dll")] public static extern IntPtr GetDlgItem(IntPtr dialog, int id);
     [DllImport("user32.dll")] public static extern bool IsWindowEnabled(IntPtr handle);
+    [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr handle);
+    [DllImport("user32.dll")] public static extern bool IsZoomed(IntPtr handle);
     [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr handle, uint message, IntPtr wParam, IntPtr lParam);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassName(IntPtr handle, System.Text.StringBuilder name, int count);
 }
@@ -486,6 +488,7 @@ try {
     . (Join-Path $PSScriptRoot 'OptionLockSmoke.ps1')
     . (Join-Path $PSScriptRoot 'ImagePreferenceSmoke.ps1')
     . (Join-Path $PSScriptRoot 'ReloadSettingsSmoke.ps1')
+    . (Join-Path $PSScriptRoot 'SingleInstanceSmoke.ps1')
 
     # Hold real clipboard acquisition while Stop and repeated Clear run on the published app.
     Commit-Folder $testFolder
