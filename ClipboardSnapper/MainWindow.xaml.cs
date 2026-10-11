@@ -878,6 +878,12 @@ public sealed partial class MainWindow : Window
         }
         finally { _text.LanguageChanged -= LanguageChanged; _allowClose = true; Close(); }
     }
+
+    internal void ActivateExisting()
+    {
+        // A repeated launch never cancels shutdown or restarts application work.
+        if (!_closing) WindowActivation.Activate(this);
+    }
 }
 
 public sealed class HistoryItem(SaveResult result, UiText text) : INotifyPropertyChanged

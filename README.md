@@ -41,6 +41,37 @@ JPEG quality is passed to `BitmapEncoder` as the `ImageQuality` option, dividing
 the integer slider value by 100 to produce a single-precision value from 0.01 to
 1.0. It is not applied to PNG or BMP.
 
+## Single-instance launch
+
+Launching the same published executable again activates the existing window.
+A minimized window is restored; a maximized window stays maximized. Activation
+does not resize or recenter the window, reload settings, restart monitoring, or
+clear history, previews, counters or accepted saves. Windows foreground rules
+still apply; if foreground activation is denied, the app requests a taskbar flash.
+
+A temporary launch process uses the Windows App SDK `AppInstance` API to forward
+activation and exits without creating another app window, clipboard monitor,
+save worker or preference writer. Forwarding is awaited while pumping STA
+messages, with a bounded timeout. An existing window is checked for responsiveness
+before forwarding; a live but unreachable owner produces a startup error rather
+than another independent instance. Startup errors use the Windows
+UI language and available translation packs, with original diagnostic text.
+
+Requests received during startup are handled by the existing instance. During
+shutdown they do not cancel closing or interrupt accepted-work/settings completion;
+the forwarding process exits and the existing app continues closing. Launch again
+after it closes to start a fresh session. Normal exit and crashes release ownership;
+if an owner exits during redirection, registration is retried a bounded number of times.
+
+The scope follows the SDK's unpackaged application identity, not a machine-wide
+restriction. Repeated launches of the same executable are coordinated. Copies in
+other directories and other app versions are not promised to share an owner; keep
+their portable configuration and update lifecycles separate. Cross-user/session
+coordination is not claimed. Single-executable packaging and automatic updates
+remain separate features.
+
+Implementation reference: [Microsoft's C# / WinUI 3 single-instance guide](https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/applifecycle/applifecycle-single-instance).
+
 ## Save queue and processing status
 
 **Save queue** lists each accepted capture with its acceptance time, frozen format,
