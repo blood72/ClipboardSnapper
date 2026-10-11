@@ -156,6 +156,7 @@
     "SettingsReloaded": "설정을 다시 읽었습니다. 감시는 중지된 상태이며 세션 기록, 미리보기와 누계는 유지됩니다.",
     "ReloadingSettings": "설정 다시 읽는 중…",
     "ReloadFailed": "설정을 다시 읽지 못했습니다",
-    "StopBeforeReload": "설정을 다시 읽기 전에 감시를 중지하세요."
+    "StopBeforeReload": "설정을 다시 읽기 전에 감시를 중지하세요.",
+    "SingleInstanceFailed": "ClipboardSnapper를 시작하거나 기존 창을 활성화하지 못했습니다. 앱이 응답하지 않으면 종료한 뒤 다시 시도하세요."
   }
 }

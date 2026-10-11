@@ -156,6 +156,7 @@
     "SettingsReloaded": "Settings reloaded. Monitoring remains stopped; session history, preview and totals are kept.",
     "ReloadingSettings": "Reloading settings…",
     "ReloadFailed": "Could not reload settings",
-    "StopBeforeReload": "Stop monitoring before reloading settings."
+    "StopBeforeReload": "Stop monitoring before reloading settings.",
+    "SingleInstanceFailed": "ClipboardSnapper could not start or activate the existing window. If the app is unresponsive, close it and try again."
   }
 }

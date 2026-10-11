@@ -1,10 +1,12 @@
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Dispatching;
 
 namespace ClipboardSnapper;
 
 public partial class App : Application
 {
-    private Window? _window;
+    private MainWindow? _window;
+    private readonly DispatcherQueue _dispatcher = DispatcherQueue.GetForCurrentThread();
 
     public App()
     {
@@ -13,7 +15,9 @@ public partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
-        _window = new MainWindow();
+        _window ??= new MainWindow();
         _window.Activate();
     }
+
+    internal void RequestActivation() => _dispatcher.TryEnqueue(() => _window?.ActivateExisting());
 }
