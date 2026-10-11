@@ -49,6 +49,10 @@ internal static class Program
 
                 try
                 {
+                    using var owner = Process.GetProcessById(checked((int)instance.ProcessId));
+                    var window = owner.MainWindowHandle;
+                    if (window != 0 && !WindowActivation.IsResponsive(window))
+                        throw new TimeoutException("The running ClipboardSnapper window is not responding.");
                     RedirectActivation(instance, activation);
                     return 0;
                 }

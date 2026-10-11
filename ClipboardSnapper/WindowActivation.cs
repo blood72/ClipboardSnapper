@@ -5,6 +5,9 @@ namespace ClipboardSnapper;
 
 internal static class WindowActivation
 {
+    internal static bool IsResponsive(nint handle) =>
+        SendMessageTimeout(handle, 0, 0, 0, 0x3, 2000, out _) != 0;
+
     internal static void Activate(Window window)
     {
         var handle = WinRT.Interop.WindowNative.GetWindowHandle(window);
@@ -40,6 +43,9 @@ internal static class WindowActivation
     private static extern bool SetForegroundWindow(nint handle);
     [DllImport("user32.dll")]
     private static extern bool FlashWindowEx(ref FlashInfo info);
+    [DllImport("user32.dll", EntryPoint = "SendMessageTimeoutW")]
+    private static extern nint SendMessageTimeout(nint handle, uint message, nuint wParam,
+        nint lParam, uint flags, uint timeout, out nuint result);
     [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "MessageBoxW")]
     private static extern int MessageBox(nint owner, string message, string title, uint flags);
 }

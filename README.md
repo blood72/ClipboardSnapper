@@ -52,8 +52,9 @@ still apply; if foreground activation is denied, the app requests a taskbar flas
 A temporary launch process uses the Windows App SDK `AppInstance` API to forward
 activation and exits without creating another app window, clipboard monitor,
 save worker or preference writer. Forwarding is awaited while pumping STA
-messages, with a bounded timeout; a live but unreachable owner produces a startup
-error rather than another independent instance. Startup errors use the Windows
+messages, with a bounded timeout. An existing window is checked for responsiveness
+before forwarding; a live but unreachable owner produces a startup error rather
+than another independent instance. Startup errors use the Windows
 UI language and available translation packs, with original diagnostic text.
 
 Requests received during startup are handled by the existing instance. During
