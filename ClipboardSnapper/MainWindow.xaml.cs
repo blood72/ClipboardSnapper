@@ -78,7 +78,7 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         _namingPreferences = new NamingPreferences(_preferences.ConfigPath);
-        _settingsLoader = new(_preferences.ConfigPath, _preferences.DefaultFolder, Path.Combine(AppContext.BaseDirectory, "lang"));
+        _settingsLoader = new(_preferences.ConfigPath, _preferences.DefaultFolder, PortableConfig.LanguageDirectory);
         InitializeComponent();
         _imageSave = DispatcherQueue.CreateTimer();
         _imageSave.Interval = TimeSpan.FromMilliseconds(200);

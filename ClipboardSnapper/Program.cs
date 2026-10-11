@@ -65,7 +65,7 @@ internal static class Program
         }
         catch (Exception exception)
         {
-            var catalog = LanguageCatalog.Load(Path.Combine(AppContext.BaseDirectory, "lang"));
+            var catalog = LanguageCatalog.Load(PortableConfig.LanguageDirectory);
             var code = catalog.Resolve(null, CultureInfo.CurrentUICulture.Name);
             var language = catalog.Languages.First(option => option.Code.Equals(code, StringComparison.OrdinalIgnoreCase));
             var message = language.Strings.TryGetValue("SingleInstanceFailed", out var translated)

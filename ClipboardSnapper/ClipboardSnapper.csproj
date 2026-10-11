@@ -15,7 +15,10 @@
     <WindowsPackageType>None</WindowsPackageType>
     <SelfContained>true</SelfContained>
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
-    <PublishSingleFile>false</PublishSingleFile>
+    <PublishSingleFile Condition="'$(PublishSingleFile)' == ''">false</PublishSingleFile>
+    <IncludeAllContentForSelfExtract Condition="'$(PublishSingleFile)' == 'true'">true</IncludeAllContentForSelfExtract>
+    <IncludeNativeLibrariesForSelfExtract Condition="'$(PublishSingleFile)' == 'true'">true</IncludeNativeLibrariesForSelfExtract>
+    <DebugType Condition="'$(PublishSingleFile)' == 'true'">embedded</DebugType>
     <PublishTrimmed>false</PublishTrimmed>
     <PublishReadyToRun>false</PublishReadyToRun>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -24,9 +27,18 @@
   </PropertyGroup>
   <ItemGroup>
     <EmbeddedResource Include="lang/en.json" LogicalName="ClipboardSnapper.lang.en.json" />
+    <EmbeddedResource Include="lang/ko.json" LogicalName="ClipboardSnapper.lang.ko.json" />
     <Content Include="lang/*.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260921001" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4654" />
     <Manifest Include="$(ApplicationManifest)" />
   </ItemGroup>
+  <ItemGroup Condition="'$(VCRuntimeDirectory)' != ''">
+    <Content Include="$(VCRuntimeDirectory)\*.dll" Link="%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Target Name="VerifyVisualCppRuntime" BeforeTargets="PrepareForPublish" Condition="'$(VCRuntimeDirectory)' != ''">
+    <Error Condition="!Exists('$(VCRuntimeDirectory)\vcruntime140.dll') or !Exists('$(VCRuntimeDirectory)\vcruntime140_1.dll') or !Exists('$(VCRuntimeDirectory)\msvcp140.dll')"
+           Text="VCRuntimeDirectory must contain the x64 Visual C++ runtime DLLs." />
+  </Target>
 </Project>

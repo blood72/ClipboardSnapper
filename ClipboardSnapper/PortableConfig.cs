@@ -9,8 +9,10 @@ internal sealed class PortableConfig(string path)
         OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
     private readonly object _gate = Gates.GetOrAdd(Path.GetFullPath(path), _ => new object());
 
-    public static string ExecutableConfigPath => Path.Combine(Path.GetDirectoryName(Environment.ProcessPath)
-        ?? throw UiMessage.InvalidOperation("ExecutableUnavailable"), "config.ini");
+    public static string ExecutableDirectory => Path.GetDirectoryName(Environment.ProcessPath)
+        ?? throw UiMessage.InvalidOperation("ExecutableUnavailable");
+    public static string ExecutableConfigPath => Path.Combine(ExecutableDirectory, "config.ini");
+    public static string LanguageDirectory => Path.Combine(ExecutableDirectory, "lang");
 
     public T Read<T>(Func<IniDocument, T> read)
     {
