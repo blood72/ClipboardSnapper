@@ -13,7 +13,7 @@ permissions:
 jobs:
   build:
     runs-on: windows-2022
-    timeout-minutes: 20
+    timeout-minutes: 30
     defaults:
       run:
         shell: pwsh
@@ -31,22 +31,7 @@ jobs:
         with:
           global-json-file: global.json
 
-      - name: Restore locked dependencies
-        run: |
-          dotnet restore $env:PROJECT --locked-mode -p:Platform=x64
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          dotnet restore tests/Contracts/Contracts.csproj --locked-mode
-
-      - name: Verify naming, preferences, history races and real JPEG encoder
-        run: dotnet run --project tests/Contracts/Contracts.csproj --framework net10.0-windows10.0.26100.0 --configuration Release --no-restore
-
-      - name: Build Release
-        run: dotnet build $env:PROJECT --configuration Release --no-restore -p:Platform=x64
-
-      - name: Publish self-contained folder
-        run: dotnet publish $env:PROJECT --configuration Release --no-restore -p:Platform=x64 --output artifacts/publish
-
-      - name: Bundle Visual C++ runtime
+      - name: Locate Visual C++ runtime
         run: |
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
@@ -54,8 +39,23 @@ jobs:
           $redist = Get-ChildItem "$vs\VC\Redist\MSVC\*\x64\Microsoft.VC143.CRT" -Directory |
             Sort-Object FullName -Descending | Select-Object -First 1
           if (-not $redist) { throw 'Visual C++ x64 redistributable files are missing.' }
-          Copy-Item "$($redist.FullName)\*.dll" artifacts/publish
+          "VCRuntimeDirectory=$($redist.FullName)" >> $env:GITHUB_ENV
           Get-ChildItem "$($redist.FullName)\*.dll" | Select-Object Name, @{Name='Version'; Expression={$_.VersionInfo.FileVersion}}
+
+      - name: Restore locked dependencies
+        run: |
+          dotnet restore $env:PROJECT --locked-mode -p:Platform=x64 -p:PublishSingleFile=true
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet restore tests/Contracts/Contracts.csproj --locked-mode
+
+      - name: Verify naming, preferences, history races and real JPEG encoder
+        run: dotnet run --project tests/Contracts/Contracts.csproj --framework net10.0-windows10.0.26100.0 --configuration Release --no-restore
+
+      - name: Build Release
+        run: dotnet build $env:PROJECT --configuration Release --no-restore -p:Platform=x64 "-p:VCRuntimeDirectory=$env:VCRuntimeDirectory"
+
+      - name: Publish self-contained folder
+        run: dotnet publish $env:PROJECT --configuration Release --no-restore -p:Platform=x64 "-p:VCRuntimeDirectory=$env:VCRuntimeDirectory" --output artifacts/publish
 
       - name: Verify publish contents and smoke test
         run: |
@@ -102,6 +102,12 @@ jobs:
             if (-not $process.HasExited) { Stop-Process -Id $process.Id }
           }
 
+      - name: Publish single-file bundle
+        run: dotnet publish $env:PROJECT --configuration Release --no-restore -p:Platform=x64 -p:PublishSingleFile=true "-p:VCRuntimeDirectory=$env:VCRuntimeDirectory" --output artifacts/single-file
+
+      - name: Verify isolated single-file app and all feature states
+        run: powershell.exe -NoProfile -STA -File tests/SingleFileSmoke.ps1 -BundlePath artifacts/single-file
+
       - name: Verify clipboard saving and feature states
         run: powershell.exe -NoProfile -STA -File tests/FeatureSmoke.ps1 -PublishPath artifacts/publish
 
@@ -114,25 +120,45 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Upload single-file executable
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: ClipboardSnapper-win-x64-single-file
+          path: artifacts/single-file/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Download uploaded artifact for verification
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: ClipboardSnapper-win-x64
           path: artifacts/downloaded
 
+      - name: Download uploaded single-file artifact for verification
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: ClipboardSnapper-win-x64-single-file
+          path: artifacts/downloaded-single-file
+
       - name: Verify every artifact file
         run: |
-          $source = (Resolve-Path artifacts/publish).Path
-          $download = (Resolve-Path artifacts/downloaded).Path
-          $files = @(Get-ChildItem $source -Recurse -File -Force)
-          $downloaded = @(Get-ChildItem $download -Recurse -File -Force)
-          if ($files.Count -ne $downloaded.Count) { throw 'Artifact file count does not match publish output.' }
-          foreach ($file in $files) {
-            $relative = [IO.Path]::GetRelativePath($source, $file.FullName)
-            $copy = Join-Path $download $relative
-            if (-not (Test-Path $copy -PathType Leaf)) { throw "Missing artifact file: $relative" }
-            if ((Get-FileHash $file.FullName -Algorithm SHA256).Hash -ne (Get-FileHash $copy -Algorithm SHA256).Hash) {
-              throw "Artifact file hash mismatch: $relative"
+          foreach ($pair in @(
+            @{ Source = 'artifacts/publish'; Download = 'artifacts/downloaded' },
+            @{ Source = 'artifacts/single-file'; Download = 'artifacts/downloaded-single-file' }
+          )) {
+            $source = (Resolve-Path $pair.Source).Path
+            $download = (Resolve-Path $pair.Download).Path
+            $files = @(Get-ChildItem $source -Recurse -File -Force)
+            $downloaded = @(Get-ChildItem $download -Recurse -File -Force)
+            if ($files.Count -ne $downloaded.Count) { throw 'Artifact file count does not match publish output.' }
+            foreach ($file in $files) {
+              $relative = [IO.Path]::GetRelativePath($source, $file.FullName)
+              $copy = Join-Path $download $relative
+              if (-not (Test-Path $copy -PathType Leaf)) { throw "Missing artifact file: $relative" }
+              if ((Get-FileHash $file.FullName -Algorithm SHA256).Hash -ne (Get-FileHash $copy -Algorithm SHA256).Hash) {
+                throw "Artifact file hash mismatch: $relative"
+              }
             }
+            Write-Output "::notice::Artifact $($pair.Source) verified: $($files.Count) files; all paths and SHA-256 hashes match."
           }
-          Write-Output "::notice::Artifact verified: $($files.Count) files; all paths and SHA-256 hashes match the publish folder."

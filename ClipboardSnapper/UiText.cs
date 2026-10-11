@@ -15,7 +15,7 @@ public sealed record LanguageCatalog(IReadOnlyList<LanguageOption> Languages, IR
     public static LanguageCatalog Load(string folder)
     {
         var languages = new Dictionary<string, LanguageOption>(StringComparer.OrdinalIgnoreCase)
-        { ["en"] = new("en", "English", UiText.EnglishStrings) };
+        { ["en"] = UiText.EmbeddedEnglish, ["ko"] = UiText.EmbeddedKorean };
         var notices = new List<UiMessage>();
         var fileCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         try
@@ -46,18 +46,14 @@ public sealed record LanguageCatalog(IReadOnlyList<LanguageOption> Languages, IR
                             if (expected.Count > 0) _ = CompositeFormat.Parse(value);
                         }
                     }
-                    if (!languages.TryAdd(code, new(code, name, strings)))
-                    {
-                        if (!code.Equals("en", StringComparison.OrdinalIgnoreCase))
-                            throw UiMessage.InvalidData("DuplicateLanguageTag");
-                        languages["en"] = new("en", name, strings);
-                    }
+                    languages[code] = new(code.Equals("en", StringComparison.OrdinalIgnoreCase) ? "en" : code, name, strings);
                 }
                 catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException or JsonException or
                     InvalidOperationException or KeyNotFoundException or FormatException or DecoderFallbackException)
                 { notices.Add(new("LanguageFileInvalid", file, UiMessage.FromException(exception))); }
             }
         }
+        catch (DirectoryNotFoundException) { } // Optional packs need not exist beside a single-file app.
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         { notices.Add(new("LanguageFolderFailed", exception.Message)); }
         return new(languages.Values.OrderBy(l => l.Code, StringComparer.Ordinal).ToArray(), notices);
@@ -81,13 +77,15 @@ public sealed record LanguageCatalog(IReadOnlyList<LanguageOption> Languages, IR
 
 public sealed class UiText : INotifyPropertyChanged
 {
-    internal static IReadOnlyDictionary<string, string> EnglishStrings { get; } = ReadEnglish();
+    internal static LanguageOption EmbeddedEnglish { get; } = ReadEmbedded("en");
+    internal static LanguageOption EmbeddedKorean { get; } = ReadEmbedded("ko");
+    internal static IReadOnlyDictionary<string, string> EnglishStrings => EmbeddedEnglish.Strings;
     public LanguageCatalog Catalog { get; private set; }
     public LanguageOption Language { get; private set; }
     public event PropertyChangedEventHandler? PropertyChanged;
     public event EventHandler? LanguageChanged;
 
-    public UiText() : this(LanguageCatalog.Load(Path.Combine(AppContext.BaseDirectory, "lang"))) { }
+    public UiText() : this(LanguageCatalog.Load(PortableConfig.LanguageDirectory)) { }
     public UiText(LanguageCatalog catalog)
     {
         Catalog = catalog;
@@ -113,13 +111,14 @@ public sealed class UiText : INotifyPropertyChanged
     }
     private static string FormatValue(string template, object[] arguments) => arguments.Length == 0
         ? template : string.Format(CultureInfo.InvariantCulture, template, arguments);
-    private static IReadOnlyDictionary<string, string> ReadEnglish()
+    private static LanguageOption ReadEmbedded(string code)
     {
-        using var stream = typeof(UiText).Assembly.GetManifestResourceStream("ClipboardSnapper.lang.en.json")
-            ?? throw new InvalidOperationException("The embedded English translation is missing.");
+        using var stream = typeof(UiText).Assembly.GetManifestResourceStream($"ClipboardSnapper.lang.{code}.json")
+            ?? throw new InvalidOperationException($"The embedded {code} translation is missing.");
         using var document = JsonDocument.Parse(stream);
-        return document.RootElement.GetProperty("strings").EnumerateObject()
-            .ToDictionary(e => e.Name, e => e.Value.GetString()!, StringComparer.Ordinal);
+        return new(code, document.RootElement.GetProperty("languageName").GetString()!,
+            document.RootElement.GetProperty("strings").EnumerateObject()
+                .ToDictionary(e => e.Name, e => e.Value.GetString()!, StringComparer.Ordinal));
     }
 }
 

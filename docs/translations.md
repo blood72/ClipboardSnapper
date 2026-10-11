@@ -1,7 +1,10 @@
 # Translation file guide
 
 ClipboardSnapper reads editable UTF-8 JSON from `lang` beside the executable.
-`en.json` and `ko.json` ship with the app. Copy a file to another language tag,
+The folder artifact includes `en.json` and `ko.json`; both are also embedded in
+the app, including the single-file artifact. For the single-file edition, create
+`lang` beside the original EXE when you want to add or override a pack. Do not edit
+the runtime extraction cache. Copy a file from the source or folder artifact to another language tag,
 edit its strings, then use **Reload settings** while stopped (or restart the app)
 and select its display name.
 No rebuild, installation or hardcoded supported-language list is needed.
@@ -43,7 +46,10 @@ produce a warning and exclude that file. Other packs stay usable. File diagnosti
 may include raw JSON/system parser information. Edit the file, then reload settings or restart to recover.
 
 Added, edited or removed files take effect on the next settings reload or launch. If the saved pack
-is missing or fails validation, the app uses English with a warning. Select an
+is missing or fails validation and has no built-in baseline, the app uses English
+with a warning. English and Korean remain available from embedded baselines when
+external packs are missing or invalid; invalid files still produce a warning.
+A valid external pack overrides the corresponding built-in pack. Select an
 available language to save a new preference; fallback alone does not rewrite it.
 User profile names, paths, clipboard contents, image files and filename formulas
 are never translated or renamed. Windows-owned dialogs remain Windows-controlled.

@@ -293,6 +293,8 @@ $testFolder = Join-Path $env:RUNNER_TEMP ('ClipboardSnapper-smoke-' + [Guid]::Ne
 $process = $null
 $customLanguage = Join-Path $publish 'lang/ja.json'
 $invalidLanguage = Join-Path $publish 'lang/de.json'
+$hadLanguageFolder = Test-Path (Join-Path $publish 'lang') -PathType Container
+if (-not $hadLanguageFolder) { New-Item -ItemType Directory -Path (Join-Path $publish 'lang') | Out-Null }
 try {
     Start-App
     $defaultFolder = Join-Path ([Environment]::GetFolderPath('MyPictures')) 'ClipboardSnapper'
@@ -811,6 +813,9 @@ try {
     }
     [DelayedClipboard]::Stop()
     foreach ($fixture in @($customLanguage, $invalidLanguage)) { if (Test-Path $fixture) { Remove-Item $fixture -Force } }
+    if (-not $hadLanguageFolder -and @(Get-ChildItem (Join-Path $publish 'lang') -Force).Count -eq 0) {
+        Remove-Item (Join-Path $publish 'lang')
+    }
     if (Test-Path $config) { Remove-Item $config -Force }
     if ($null -ne $originalConfig) { [IO.File]::WriteAllBytes($config, $originalConfig) }
     for ($attempt = 0; $attempt -lt 10 -and (Test-Path $testFolder); $attempt++) {

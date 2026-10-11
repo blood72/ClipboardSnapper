@@ -83,7 +83,8 @@ static class LanguageContracts
             await File.WriteAllTextAsync(Path.Combine(root, "de.json"), "{\"languageName\":\"Deutsch\",\"strings\":{\"Example\":\"{5}\"}}");
             await File.WriteAllTextAsync(Path.Combine(root, "fr.json"), "{\"languageName\":\"Français\",\"strings\":{\"Start\":\"A\",\"Start\":\"B\"}}");
             custom = LanguageCatalog.Load(root);
-            Check.That(custom.Notices.Count == 3 && custom.Languages.Count == 2 && custom.Languages.All(l => l.Code is "en" or "ja"),
+            Check.That(custom.Notices.Count == 3 && custom.Languages.Count == 3 && custom.Languages.All(l => l.Code is "en" or "ko" or "ja") &&
+                custom.Languages.Single(l => l.Code == "ko").Strings["Start"] == "시작",
                 "Malformed JSON, placeholder injection or duplicate keys were not isolated from usable languages.");
             await File.WriteAllTextAsync(Path.Combine(root, "en.json"), "{\"languageName\":\"English\",\"strings\":{\"Stop\":\"Edited English Stop\"}}");
             text = new UiText(LanguageCatalog.Load(root));
@@ -95,7 +96,19 @@ static class LanguageContracts
             text = new UiText(LanguageCatalog.Load(root));
             text.Select(text.Catalog.Resolve("ja", "en"));
             Check.That(text.Language.Code == "en" && text["Start"] == "Start", "Removing an active translation did not safely fall back to English.");
-            Check.That(LanguageCatalog.Load(Path.Combine(root, "missing")).Languages.Single().Code == "en", "Missing files broke embedded English fallback.");
+            var embedded = LanguageCatalog.Load(Path.Combine(root, "missing"));
+            Check.That(embedded.Notices.Count == 0 && embedded.Languages.Count == 2 &&
+                embedded.Resolve(null, "ko-KR") == "ko" && embedded.Languages.Single(l => l.Code == "ko").Strings["Start"] == "시작",
+                "An absent optional language directory must retain embedded English/Korean without warnings.");
+            await File.WriteAllTextAsync(Path.Combine(root, "ko.json"), "{\"languageName\":\"Custom Korean\",\"strings\":{\"Start\":\"외부 시작\"}}");
+            text = new UiText(LanguageCatalog.Load(root));
+            text.Select("ko");
+            Check.That(text.Language.Name == "Custom Korean" && text["Start"] == "외부 시작" && text["Stop"] == "Stop",
+                "An external Korean pack must override the built-in pack and retain per-key English fallback.");
+            await File.WriteAllTextAsync(Path.Combine(root, "EN.json"), "{\"languageName\":\"Edited English\",\"strings\":{\"Stop\":\"External Stop\"}}");
+            text = new UiText(LanguageCatalog.Load(root));
+            text.Select("ko");
+            Check.That(text["Stop"] == "External Stop", "A case-insensitive English override broke built-in pack fallback.");
             Console.WriteLine("::notice::Language contracts passed: complete Korean keys, Windows/explicit/fallback policy, live notifications, structured errors with original diagnostics, immutable filename rules, concurrent INI persistence, malformed/read-only settings, startup-added/edited/removed JSON languages, per-key fallback and isolated invalid files.");
         }
         finally { Directory.Delete(root, true); }
