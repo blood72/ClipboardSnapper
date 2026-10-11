@@ -261,9 +261,14 @@ try {
     } else {
         if ($copyProcess.MainWindowHandle -eq [IntPtr]::Zero) { throw 'Copied executable did not finish startup.' }
         $copyRoot = [System.Windows.Automation.AutomationElement]::FromHandle($copyProcess.MainWindowHandle)
-        $condition = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'MonitoringStatus')
-        Wait-For { $null -ne $copyRoot.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition) } 'copied app monitoring state'
-        if ($copyRoot.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition).Current.Name -ne 'Ready') { throw 'Copied app began monitoring automatically.' }
+        $copyStatusCondition = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'MonitoringStatus')
+        $copyFormatCondition = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'FormatPicker')
+        Wait-For {
+            $null -ne $copyRoot.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $copyStatusCondition) -and
+            $null -ne $copyRoot.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $copyFormatCondition) -and
+            $copyRoot.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $copyFormatCondition).Current.IsEnabled
+        } 'copied app loaded preferences and monitoring state'
+        if ($copyRoot.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $copyStatusCondition).Current.Name -ne 'Ready') { throw 'Copied app began monitoring automatically.' }
         ([System.Windows.Automation.WindowPattern]$copyRoot.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern)).Close()
         if (-not $copyProcess.WaitForExit(15000) -or $copyProcess.ExitCode -ne 0) { throw 'Copied application did not close normally.' }
         Write-Output '::notice::AppInstance identity observation: separate executable directories have independent owners; neither copy auto-started monitoring.'
