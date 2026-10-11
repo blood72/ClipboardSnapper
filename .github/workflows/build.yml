@@ -102,14 +102,14 @@ jobs:
             if (-not $process.HasExited) { Stop-Process -Id $process.Id }
           }
 
-      - name: Verify clipboard saving and feature states
-        run: powershell.exe -NoProfile -STA -File tests/FeatureSmoke.ps1 -PublishPath artifacts/publish
-
       - name: Publish single-file bundle
         run: dotnet publish $env:PROJECT --configuration Release --no-restore -p:Platform=x64 -p:PublishSingleFile=true "-p:VCRuntimeDirectory=$env:VCRuntimeDirectory" --output artifacts/single-file
 
       - name: Verify isolated single-file app and all feature states
         run: powershell.exe -NoProfile -STA -File tests/SingleFileSmoke.ps1 -BundlePath artifacts/single-file
+
+      - name: Verify clipboard saving and feature states
+        run: powershell.exe -NoProfile -STA -File tests/FeatureSmoke.ps1 -PublishPath artifacts/publish
 
       - name: Upload complete publish folder
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
