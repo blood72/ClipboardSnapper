@@ -1,4 +1,4 @@
-# Runs inside FeatureSmoke.ps1 against the real published app.
+﻿# Runs inside FeatureSmoke.ps1 against the real published app.
 Add-Type @'
 using System;
 using System.Runtime.InteropServices;
@@ -162,7 +162,16 @@ try {
     if ([InstanceFixture]::NtSuspendProcess($ownerHandle) -ne 0) { throw 'Could not suspend the idle test owner.' }
     try {
         $unreachable = Launch-Again
-        Wait-For { $unreachable.Refresh(); $unreachable.MainWindowHandle -ne [IntPtr]::Zero } 'bounded activation failure dialog'
+        # Avoid querying the suspended owner's UI providers in timeout diagnostics.
+        $deadline = [DateTime]::UtcNow.AddSeconds(20)
+        do {
+            $unreachable.Refresh()
+            if ($unreachable.HasExited -or $unreachable.MainWindowHandle -ne [IntPtr]::Zero) { break }
+            Start-Sleep -Milliseconds 100
+        } while ([DateTime]::UtcNow -lt $deadline)
+        if ($unreachable.HasExited -or $unreachable.MainWindowHandle -eq [IntPtr]::Zero) {
+            throw 'The live-owner activation attempt did not show its bounded failure dialog.'
+        }
         $errorWindow = $unreachable.MainWindowHandle
         $class = [Text.StringBuilder]::new(256)
         [void][DesktopNative]::GetClassName($errorWindow, $class, $class.Capacity)
