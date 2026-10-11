@@ -220,11 +220,16 @@ try {
         [void][DesktopNative]::GetClassName($errorWindow, $class, $class.Capacity)
         if ($class.ToString() -ne '#32770') { throw 'Unreachable owner caused another application window instead of an error dialog.' }
         $errorRoot = [System.Windows.Automation.AutomationElement]::FromHandle($errorWindow)
-        $errorTexts = $errorRoot.FindAll([System.Windows.Automation.TreeScope]::Descendants,
-            [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-                [System.Windows.Automation.ControlType]::Text))
-        if (-not (($errorTexts | ForEach-Object { $_.Current.Name }) -join ' ').Contains('ClipboardSnapper')) {
-            throw 'The forwarding failure did not explain the application error.'
+        $deadline = [DateTime]::UtcNow.AddSeconds(5)
+        do {
+            $errorControls = $errorRoot.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+                [System.Windows.Automation.Condition]::TrueCondition)
+            $errorText = ($errorControls | ForEach-Object { $_.Current.Name }) -join ' | '
+            if ($errorText.Contains('ClipboardSnapper')) { break }
+            Start-Sleep -Milliseconds 100
+        } while ([DateTime]::UtcNow -lt $deadline)
+        if (-not $errorText.Contains('ClipboardSnapper')) {
+            throw "The forwarding failure did not explain the application error. Dialog controls: $errorText"
         }
         Click-PickerButton $errorWindow 1
         if (-not $unreachable.WaitForExit(15000) -or $unreachable.ExitCode -ne 1) { throw 'Unreachable-owner launch did not report a nonzero exit.' }
