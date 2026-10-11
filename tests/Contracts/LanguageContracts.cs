@@ -7,7 +7,9 @@ static class LanguageContracts
     public static async Task RunAsync()
     {
         var bundled = LanguageCatalog.Load(Path.Combine(AppContext.BaseDirectory, "lang"));
-        Check.That(bundled.Notices.Count == 0 && bundled.Languages.Count == 2, "Bundled JSON translations did not load cleanly.");
+        Check.That(bundled.Notices.Count == 0 && bundled.Languages.Count == 2, "External JSON translations did not load cleanly.");
+        Check.That(!typeof(UiText).Assembly.GetManifestResourceNames().Any(name => name.EndsWith(".json", StringComparison.OrdinalIgnoreCase)),
+            "Translation JSON must not be an embedded assembly resource.");
         var en = bundled.Languages.Single(l => l.Code == "en");
         var ko = bundled.Languages.Single(l => l.Code == "ko");
         Check.That(en.Strings.Keys.Order().SequenceEqual(ko.Strings.Keys.Order()), "Korean is missing app-owned translation keys.");
@@ -83,8 +85,7 @@ static class LanguageContracts
             await File.WriteAllTextAsync(Path.Combine(root, "de.json"), "{\"languageName\":\"Deutsch\",\"strings\":{\"Example\":\"{5}\"}}");
             await File.WriteAllTextAsync(Path.Combine(root, "fr.json"), "{\"languageName\":\"Français\",\"strings\":{\"Start\":\"A\",\"Start\":\"B\"}}");
             custom = LanguageCatalog.Load(root);
-            Check.That(custom.Notices.Count == 3 && custom.Languages.Count == 3 && custom.Languages.All(l => l.Code is "en" or "ko" or "ja") &&
-                custom.Languages.Single(l => l.Code == "ko").Strings["Start"] == "시작",
+            Check.That(custom.Notices.Count == 4 && custom.Languages.Count == 2 && custom.Languages.All(l => l.Code is "en" or "ja"),
                 "Malformed JSON, placeholder injection or duplicate keys were not isolated from usable languages.");
             await File.WriteAllTextAsync(Path.Combine(root, "en.json"), "{\"languageName\":\"English\",\"strings\":{\"Stop\":\"Edited English Stop\"}}");
             text = new UiText(LanguageCatalog.Load(root));
@@ -96,19 +97,45 @@ static class LanguageContracts
             text = new UiText(LanguageCatalog.Load(root));
             text.Select(text.Catalog.Resolve("ja", "en"));
             Check.That(text.Language.Code == "en" && text["Start"] == "Start", "Removing an active translation did not safely fall back to English.");
-            var embedded = LanguageCatalog.Load(Path.Combine(root, "missing"));
-            Check.That(embedded.Notices.Count == 0 && embedded.Languages.Count == 2 &&
-                embedded.Resolve(null, "ko-KR") == "ko" && embedded.Languages.Single(l => l.Code == "ko").Strings["Start"] == "시작",
-                "An absent optional language directory must retain embedded English/Korean without warnings.");
+            var missing = LanguageCatalog.Load(Path.Combine(root, "missing"));
+            Check.That(missing.Notices.Count == 1 && missing.Languages.Count == 1 &&
+                missing.Resolve(null, "ko-KR") == "en" && missing.Languages.Single().Strings["Start"] == "Start",
+                "A removed language directory must warn and use the English file read at startup without retaining Korean.");
+            try
+            {
+                UiText.InitializeEnglish(Path.Combine(root, "missing"));
+                throw new Exception("A missing startup English file was accepted.");
+            }
+            catch (Exception exception) when (exception is DirectoryNotFoundException or FileNotFoundException) { }
+            Check.That(UiText.English("Stop") == "Stop", "A failed initial read replaced the valid in-memory English file.");
             await File.WriteAllTextAsync(Path.Combine(root, "ko.json"), "{\"languageName\":\"Custom Korean\",\"strings\":{\"Start\":\"외부 시작\"}}");
             text = new UiText(LanguageCatalog.Load(root));
             text.Select("ko");
             Check.That(text.Language.Name == "Custom Korean" && text["Start"] == "외부 시작" && text["Stop"] == "Stop",
-                "An external Korean pack must override the built-in pack and retain per-key English fallback.");
+                "An external Korean pack must be discovered and retain per-key English fallback.");
             await File.WriteAllTextAsync(Path.Combine(root, "EN.json"), "{\"languageName\":\"Edited English\",\"strings\":{\"Stop\":\"External Stop\"}}");
             text = new UiText(LanguageCatalog.Load(root));
             text.Select("ko");
-            Check.That(text["Stop"] == "External Stop", "A case-insensitive English override broke built-in pack fallback.");
+            Check.That(text["Stop"] == "External Stop", "A case-insensitive English file broke per-key fallback.");
+            await File.WriteAllTextAsync(Path.Combine(root, "EN.json"), "not-json");
+            custom = LanguageCatalog.Load(root);
+            text = new UiText(custom);
+            text.Select("ko");
+            Check.That(custom.Notices.Any(notice => notice.Key == "LanguageFileInvalid") && text["Stop"] == "Stop",
+                "Invalid external English must warn and use only the file read at startup.");
+            File.Delete(Path.Combine(root, "EN.json"));
+            custom = LanguageCatalog.Load(root);
+            Check.That(custom.Notices.Any(notice => notice.Key == "EnglishPackMissing"),
+                "Removing external English during a session must report the required file.");
+            var preservedKorean = await File.ReadAllTextAsync(Path.Combine(root, "ko.json"));
+            File.Delete(Path.Combine(root, "ko.json"));
+            custom = LanguageCatalog.Load(root);
+            Check.That(custom.Resolve("ko", "ko-KR") == "en" && custom.Languages.All(l => l.Code != "ko"),
+                "Removing Korean must remove it from the catalog; there is no hidden built-in pack.");
+            await File.WriteAllTextAsync(Path.Combine(root, "ko.json"), preservedKorean);
+            Check.That(LanguageCatalog.Load(root).Resolve("ko", "en-US") == "ko" &&
+                await File.ReadAllTextAsync(Path.Combine(root, "ko.json")) == preservedKorean,
+                "Restoring Korean must rediscover it without rewriting user translation files.");
             Console.WriteLine("::notice::Language contracts passed: complete Korean keys, Windows/explicit/fallback policy, live notifications, structured errors with original diagnostics, immutable filename rules, concurrent INI persistence, malformed/read-only settings, startup-added/edited/removed JSON languages, per-key fallback and isolated invalid files.");
         }
         finally { Directory.Delete(root, true); }

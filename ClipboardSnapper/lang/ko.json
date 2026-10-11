@@ -1,6 +1,7 @@
 {
   "languageName": "한국어",
   "strings": {
+    "EnglishPackMissing": "영어 언어 파일이 없습니다: {0}. 파일을 복구할 때까지 시작 시 읽은 영어 파일을 사용합니다.",
     "Ready": "준비됨",
     "Monitoring": "감시 중",
     "Stopped": "중지됨",
