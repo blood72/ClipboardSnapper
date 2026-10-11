@@ -480,6 +480,8 @@ are pinned to commit SHAs. Version pins do not freeze the hosted runner image.
 
 `EnableMsixTooling` enables the XAML/PRI resource targets and SDK single-file
 configuration checks; `WindowsPackageType=None` keeps deployment unpackaged.
+Folder and bundle modes use separate build/intermediate directories so their
+native manifests and resource indexes cannot be reused across publish modes.
 The SDK initializes native/resource lookup in the extraction directory. The app
 keeps portable user files at `Environment.ProcessPath`'s original directory.
 See [Microsoft's WinUI single-file guide](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/unpackage-winui-app#single-file-exe).
@@ -549,8 +551,11 @@ confirmation, and malformed/removed settings recovery.
 Both JSON files are required folder-publish contents. CI also publishes the
 single-file EXE and starts it from an isolated folder initially containing only
 the EXE, with spaces/non-ASCII characters and a different working directory.
-An isolated extraction cache verifies app-local CLR, WinUI and CRT module paths.
-Cold/repeated launches, embedded Korean without external files, cache recreation,
+An isolated extraction cache verifies .NET core-library and WinUI module paths,
+self-contained runtime configuration and bundled CRT files. Any separately loaded
+native CLR/CRT module must also come from that cache; runtime components can be
+internal to the single-file host. Cold/repeated launches, embedded Korean without
+external files, blocked-extraction diagnostics, cache recreation,
 and EXE replacement preserving configuration are checked. The entire feature
 suite, including external language packs/reload and single-instance races, runs
 against the isolated bundled EXE as well as the folder output.
