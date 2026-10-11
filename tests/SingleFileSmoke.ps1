@@ -16,7 +16,11 @@ $exe = Join-Path $appFolder 'ClipboardSnapper.exe'
 $config = Join-Path $appFolder 'config.ini'
 Copy-Item $files[0].FullName $exe
 $oldCache = $env:DOTNET_BUNDLE_EXTRACT_BASE_DIR
+$oldHostTrace = $env:DOTNET_HOST_TRACE
+$oldHostTraceFile = $env:DOTNET_HOST_TRACEFILE
 $env:DOTNET_BUNDLE_EXTRACT_BASE_DIR = $cache
+$env:DOTNET_HOST_TRACE = '1'
+$env:DOTNET_HOST_TRACEFILE = Join-Path $fixture 'host-trace.txt'
 $process = $null
 $root = $null
 
@@ -53,13 +57,25 @@ function Start-Bundle {
     $script:root = [System.Windows.Automation.AutomationElement]::FromHandle($process.MainWindowHandle)
     Wait-Bundle { $null -ne (Find-BundleControl 'FormatPicker') -and (Find-BundleControl 'FormatPicker').Current.IsEnabled } 'settings load'
     $process.Refresh() # Start-Process can cache module metadata before bundle extraction completes.
-    foreach ($moduleName in @('coreclr.dll', 'Microsoft.UI.Xaml.dll', 'vcruntime140.dll', 'msvcp140.dll')) {
+    foreach ($moduleName in @('System.Private.CoreLib.dll', 'Microsoft.UI.Xaml.dll')) {
         $module = $process.Modules | Where-Object ModuleName -eq $moduleName | Select-Object -First 1
         if ($null -eq $module -or -not $module.FileName.StartsWith($cache + '\', [StringComparison]::OrdinalIgnoreCase)) {
             $loaded = ($process.Modules | ForEach-Object { $_.FileName }) -join ' | '
             throw "Bundled native module was not loaded from the isolated extraction cache: $moduleName. Actual: $($module.FileName). Expected root: $cache. Loaded: $loaded"
         }
     }
+    foreach ($moduleName in @('coreclr.dll', 'vcruntime140.dll', 'vcruntime140_1.dll', 'msvcp140.dll')) {
+        $module = $process.Modules | Where-Object ModuleName -eq $moduleName | Select-Object -First 1
+        if ($null -ne $module -and -not $module.FileName.StartsWith($cache + '\', [StringComparison]::OrdinalIgnoreCase)) {
+            throw "An external runtime was loaded instead of a bundled component: $($module.FileName)"
+        }
+    }
+    $runtimeRoot = Split-Path ($process.Modules | Where-Object ModuleName -eq 'System.Private.CoreLib.dll' | Select-Object -First 1).FileName
+    foreach ($file in @('vcruntime140.dll', 'vcruntime140_1.dll', 'msvcp140.dll')) {
+        if (-not (Test-Path (Join-Path $runtimeRoot $file) -PathType Leaf)) { throw "Bundled CRT payload missing: $file" }
+    }
+    $runtimeConfig = Get-Content (Join-Path $runtimeRoot 'ClipboardSnapper.runtimeconfig.json') -Raw | ConvertFrom-Json
+    if ($runtimeConfig.runtimeOptions.framework -or $runtimeConfig.runtimeOptions.frameworks) { throw 'The bundle depends on a separately installed .NET framework.' }
 }
 function Close-Bundle {
     ([System.Windows.Automation.WindowPattern]$root.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern)).Close()
@@ -72,6 +88,9 @@ try {
     if ((Find-BundleControl 'MonitoringStatus').Current.Name -notin @('Ready', '준비됨')) { throw 'Bundled first launch started monitoring.' }
     if (Test-Path (Join-Path $appFolder 'lang')) { throw 'Startup unexpectedly materialized external language packs.' }
     Close-Bundle
+    Get-Content (Join-Path $fixture 'host-trace.txt') | Where-Object { $_ -match 'coreclr|CoreCLR|internal|runtime location' } | Select-Object -Last 15 | Write-Output
+    $env:DOTNET_HOST_TRACE = $oldHostTrace
+    $env:DOTNET_HOST_TRACEFILE = $oldHostTraceFile
 
     # No external packs are needed for Korean; settings remain beside the original EXE.
     $preserved = "; Keep settings across replacement`r`n[Appearance]`r`nLanguage=ko`r`n[Updates]`r`nEnabled=false`r`n"
@@ -123,5 +142,7 @@ try {
         [void]$process.WaitForExit(15000)
     }
     $env:DOTNET_BUNDLE_EXTRACT_BASE_DIR = $oldCache
+    $env:DOTNET_HOST_TRACE = $oldHostTrace
+    $env:DOTNET_HOST_TRACEFILE = $oldHostTraceFile
     Remove-Item $fixture -Recurse -Force
 }
