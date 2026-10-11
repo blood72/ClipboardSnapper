@@ -7,7 +7,7 @@ $files = @(Get-ChildItem $bundle -Recurse -File -Force)
 $expectedFiles = @('ClipboardSnapper.exe', 'lang/en.json', 'lang/ko.json')
 $relativeFiles = @($files | ForEach-Object { $_.FullName.Substring($bundle.Length + 1).Replace('\', '/') } | Sort-Object)
 if (($relativeFiles -join '|') -ne (($expectedFiles | Sort-Object) -join '|')) {
-    throw 'The bundled-runtime artifact must contain the EXE and two external language files only.'
+    throw "The bundled-runtime artifact must contain the EXE and two external language files only. Actual: $($relativeFiles -join ' | ')"
 }
 $sourceExe = Join-Path $bundle 'ClipboardSnapper.exe'
 $sourceLanguageFolder = Join-Path $bundle 'lang'
