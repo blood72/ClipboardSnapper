@@ -105,6 +105,10 @@ static class LanguageContracts
             text.Select("ko");
             Check.That(text.Language.Name == "Custom Korean" && text["Start"] == "외부 시작" && text["Stop"] == "Stop",
                 "An external Korean pack must override the built-in pack and retain per-key English fallback.");
+            await File.WriteAllTextAsync(Path.Combine(root, "EN.json"), "{\"languageName\":\"Edited English\",\"strings\":{\"Stop\":\"External Stop\"}}");
+            text = new UiText(LanguageCatalog.Load(root));
+            text.Select("ko");
+            Check.That(text["Stop"] == "External Stop", "A case-insensitive English override broke built-in pack fallback.");
             Console.WriteLine("::notice::Language contracts passed: complete Korean keys, Windows/explicit/fallback policy, live notifications, structured errors with original diagnostics, immutable filename rules, concurrent INI persistence, malformed/read-only settings, startup-added/edited/removed JSON languages, per-key fallback and isolated invalid files.");
         }
         finally { Directory.Delete(root, true); }

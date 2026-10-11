@@ -46,7 +46,7 @@ public sealed record LanguageCatalog(IReadOnlyList<LanguageOption> Languages, IR
                             if (expected.Count > 0) _ = CompositeFormat.Parse(value);
                         }
                     }
-                    languages[code] = new(code, name, strings);
+                    languages[code] = new(code.Equals("en", StringComparison.OrdinalIgnoreCase) ? "en" : code, name, strings);
                 }
                 catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException or JsonException or
                     InvalidOperationException or KeyNotFoundException or FormatException or DecoderFallbackException)
