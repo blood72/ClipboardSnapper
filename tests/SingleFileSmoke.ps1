@@ -77,6 +77,24 @@ try {
     Close-Bundle
     if (Test-Path (Join-Path $working 'config.ini')) { throw 'Configuration was written to the working directory.' }
     if (@(Get-ChildItem $cache -Recurse -Filter config.ini -File).Count -ne 0) { throw 'Configuration was written to the extraction cache.' }
+    # A blocked extraction destination must fail before application work and preserve settings.
+    $blockedCache = Join-Path $fixture 'blocked extraction root'
+    [IO.File]::WriteAllText($blockedCache, 'This is a file, not a cache directory.')
+    $oldGuiErrors = $env:DOTNET_DISABLE_GUI_ERRORS
+    try {
+        $env:DOTNET_BUNDLE_EXTRACT_BASE_DIR = $blockedCache
+        $env:DOTNET_DISABLE_GUI_ERRORS = '1'
+        $script:process = Start-Process $exe -WorkingDirectory $working -PassThru `
+            -RedirectStandardError (Join-Path $fixture 'startup-error.txt') -RedirectStandardOutput (Join-Path $fixture 'startup-output.txt')
+        if (-not $process.WaitForExit(15000)) { throw 'Blocked extraction did not fail within the startup deadline.' }
+        if ($process.ExitCode -eq 0 -or [string]::IsNullOrWhiteSpace([IO.File]::ReadAllText((Join-Path $fixture 'startup-error.txt')))) {
+            throw 'Blocked extraction must return failure with a host diagnostic.'
+        }
+        if ([IO.File]::ReadAllText($config) -ne $preserved) { throw 'Failed extraction modified user settings.' }
+    } finally {
+        $env:DOTNET_BUNDLE_EXTRACT_BASE_DIR = $cache
+        $env:DOTNET_DISABLE_GUI_ERRORS = $oldGuiErrors
+    }
     Remove-Item $config
 
     # Exercise all existing contracts against this isolated EXE, including custom external packs,
@@ -84,7 +102,7 @@ try {
     & powershell.exe -NoProfile -STA -File (Join-Path $PSScriptRoot 'FeatureSmoke.ps1') -PublishPath $appFolder
     if ($LASTEXITCODE -ne 0) { throw "Bundled feature tests failed: $LASTEXITCODE" }
     if (@(Get-ChildItem $appFolder -Recurse -File -Force).Count -ne 1) { throw 'Feature tests left unexpected files beside the bundle.' }
-    Write-Output "::notice::Single-file verified: $($files[0].Length) bytes; EXE-only cold/repeated launches, native runtimes from isolated cache, embedded Korean, spaces/non-ASCII/different working directory, cache recreation and replacement with portable settings, and the complete feature/single-instance suite."
+    Write-Output "::notice::Single-file verified: $($files[0].Length) bytes; EXE-only cold/repeated launches, native runtimes from isolated cache, embedded Korean, spaces/non-ASCII/different working directory, cache recreation and replacement with portable settings, blocked-extraction diagnostic, and the complete feature/single-instance suite."
 } finally {
     if ($null -ne $process -and -not $process.HasExited) {
         Stop-Process -Id $process.Id
