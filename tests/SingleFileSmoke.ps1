@@ -52,10 +52,12 @@ function Start-Bundle {
     if ($process.MainWindowTitle -ne 'ClipboardSnapper') { throw 'Incorrect bundled window title.' }
     $script:root = [System.Windows.Automation.AutomationElement]::FromHandle($process.MainWindowHandle)
     Wait-Bundle { $null -ne (Find-BundleControl 'FormatPicker') -and (Find-BundleControl 'FormatPicker').Current.IsEnabled } 'settings load'
+    $process.Refresh() # Start-Process can cache module metadata before bundle extraction completes.
     foreach ($moduleName in @('coreclr.dll', 'Microsoft.UI.Xaml.dll', 'vcruntime140.dll', 'msvcp140.dll')) {
         $module = $process.Modules | Where-Object ModuleName -eq $moduleName | Select-Object -First 1
         if ($null -eq $module -or -not $module.FileName.StartsWith($cache + '\', [StringComparison]::OrdinalIgnoreCase)) {
-            throw "Bundled native module was not loaded from the isolated extraction cache: $moduleName. Actual: $($module.FileName). Expected root: $cache"
+            $loaded = ($process.Modules | ForEach-Object { $_.FileName }) -join ' | '
+            throw "Bundled native module was not loaded from the isolated extraction cache: $moduleName. Actual: $($module.FileName). Expected root: $cache. Loaded: $loaded"
         }
     }
 }
