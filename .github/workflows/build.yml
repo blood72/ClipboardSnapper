@@ -105,7 +105,7 @@ jobs:
       - name: Publish single-file bundle
         run: dotnet publish $env:PROJECT --configuration Release --no-restore -p:Platform=x64 -p:PublishSingleFile=true "-p:VCRuntimeDirectory=$env:VCRuntimeDirectory" --output artifacts/single-file
 
-      - name: Verify isolated single-file app and all feature states
+      - name: Verify portable bundle, external languages and all feature states
         run: powershell.exe -NoProfile -STA -File tests/SingleFileSmoke.ps1 -BundlePath artifacts/single-file
 
       - name: Verify clipboard saving and feature states
@@ -120,7 +120,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Upload single-file executable
+      - name: Upload bundled executable and external language folder
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: ClipboardSnapper-win-x64-single-file

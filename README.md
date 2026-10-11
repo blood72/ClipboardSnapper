@@ -133,20 +133,24 @@ retain their Windows-provided language; file Details also keeps the original
 exception information. Repository documentation remains English.
 
 Translations are editable UTF-8 files in **`lang` beside `ClipboardSnapper.exe`**.
-The complete-folder artifact includes `lang/en.json` and `lang/ko.json`. The
-single-file artifact embeds both languages, so no external files are required.
-Create `lang` beside the original EXE to add or override packs; files in the
-runtime extraction cache are not user settings. Add another
-language-tag JSON file, such as `lang/ja.json`, then use **Reload settings** while
-stopped (or restart the app) to select it; no app rebuild is required. Translation
-files are read at startup and by Reload settings. Added, edited, removed or
-invalidated files take effect on the next load; an unavailable saved
-language falls back to English with a warning. Missing translation keys use the
-current English file, then the embedded English baseline. Malformed JSON, duplicate
-keys, invalid language tags and incompatible placeholders are rejected per file;
-other language files remain usable. Embedded English and Korean remain available
-when their external packs are absent or invalid. A valid external pack overrides
-its built-in pack; missing keys still fall back to English.
+Both artifacts ship external `lang/en.json` and `lang/ko.json`; neither pack is
+embedded in the executable or runtime bundle. Keep `lang` together with the EXE.
+The app never creates, restores or overwrites language files. Files in the runtime
+extraction cache are not user settings. Add another language-tag JSON file, such
+as `lang/ja.json`, then use **Reload settings** while stopped (or restart the app)
+to select it; no app rebuild is required. Added, edited, removed or invalidated
+files take effect on the next load. Missing or invalid Korean falls back to
+English with a warning when Korean was selected; no hidden Korean copy remains.
+
+A valid `lang/en.json` is required at startup. If it is absent or invalid, startup
+reports the file problem and exits before creating a window or settings. During a
+session, missing translation keys use the currently loaded English file, then the
+English file successfully read at startup. Removing or invalidating English while
+running shows a warning on reload and retains that in-memory startup fallback;
+restore the file before restarting. There is no embedded English baseline.
+Malformed JSON, duplicate keys, invalid language tags and incompatible placeholders
+are rejected per file; other language files remain usable. Keep the English file
+complete; an unknown/missing English key displays its key as a diagnostic.
 
 **Reload settings** reads configuration and language packs together while stopped;
 see the reload procedure below. There is no separate language-only reload command.
@@ -387,8 +391,9 @@ filter, queue management screen, tray integration, or automatic updater.
   Windows 10 is not included in this app's supported deployment targets.
 - An interactive desktop session. ARM64 and x86 builds are not included.
 - For the complete-folder artifact, keep every file and subfolder together.
-  The single-file artifact needs only its EXE and a writable runtime extraction
-  location. Saving preferences or custom packs beside the EXE requires a writable
+  The bundled-runtime artifact needs its EXE, the external `lang` folder, and a
+  writable runtime extraction location. Saving preferences or editing packs beside
+  the EXE requires a writable
   application directory, as with the folder edition.
 
 The app is **unpackaged**: no MSIX installation, signing certificate, or Developer
@@ -410,11 +415,11 @@ visibility. Final desktop verification should be performed on the target PC.
 
    | Artifact | Contents | Run instructions |
    | --- | --- | --- |
-   | **ClipboardSnapper-win-x64-single-file** | One bundled `ClipboardSnapper.exe`. | Retrieve the EXE from the downloaded ZIP and run it. No companion runtime files or manual dependency extraction are needed. |
+   | **ClipboardSnapper-win-x64-single-file** | One bundled-runtime `ClipboardSnapper.exe` plus external `lang/en.json` and `lang/ko.json`. | Extract the ZIP, keep `lang` beside the EXE, and run it. No companion runtime files or manual runtime extraction are needed. |
    | **ClipboardSnapper-win-x64** | The complete self-contained publish folder. | Extract the entire ZIP, keep all files/subfolders together, and run `ClipboardSnapper.exe`. |
 
    GitHub requires sign-in and wraps Actions artifact downloads in ZIP files;
-   this download wrapper is separate from the app's single-file packaging.
+   this download wrapper is separate from the app's bundled-runtime packaging.
    Artifacts expire after 14 days. Both are development snapshots until the owner
    declares the formal 1.0.0 release.
 4. The app opens in **Ready** with monitoring off. Keep an existing `config.ini`
@@ -432,9 +437,13 @@ extracted files alone. Cache files can be recreated on a later launch after all
 instances have closed. Extraction needs disk space for the bundled dependencies;
 no installer, administrator privileges or registry setup is added.
 
-Persistent settings and optional user language packs always use the original
+Persistent settings and external language packs always use the original
 EXE directory, independent of the working directory and extraction cache. English
-and Korean are embedded; create `lang` there only when adding/editing translations.
+and Korean are external files in that `lang` folder. After the first successful
+launch, the bundled edition has exactly three top-level entries: `ClipboardSnapper.exe`,
+`config.ini`, and `lang`. Saved images use the configured folder; the runtime cache
+is separate. Keep existing configuration and edited language files when replacing
+the EXE between snapshots.
 Saved images continue to use the configured save folder. Automatic updates,
 compression, trimming and size/startup optimizations are not included.
 
@@ -549,20 +558,24 @@ loads without rewriting, retained history/preview/totals/files/clipboard, accept
 save options, pending-write/Clear coordination, language pack changes and Korean
 confirmation, and malformed/removed settings recovery.
 Both JSON files are required folder-publish contents. CI also publishes the
-single-file EXE and starts it from an isolated folder initially containing only
-the EXE, with spaces/non-ASCII characters and a different working directory.
+bundled-runtime EXE and external `lang` folder, then starts them from an isolated
+folder with spaces/non-ASCII characters and a different working directory. An
+EXE-only startup must report missing external English and exit without settings.
 An isolated extraction cache verifies .NET core-library and WinUI module paths,
 self-contained runtime configuration and bundled CRT files. Any separately loaded
 native CLR/CRT module must also come from that cache; runtime components can be
-internal to the single-file host. Cold/repeated launches, embedded Korean without
-external files, blocked-extraction diagnostics, cache recreation,
+internal to the single-file host. Cold/repeated launches, external Korean edits,
+invalid/removal/restoration fallback, unchanged translation files, the three-entry
+portable layout, blocked-extraction diagnostics, cache recreation,
 and EXE replacement preserving configuration are checked. The entire feature
 suite, including external language packs/reload and single-instance races, runs
 against the isolated bundled EXE as well as the folder output.
 
 Both artifacts are uploaded only after these checks pass. CI downloads each
 artifact and compares every relative file path and SHA-256 hash with its output,
-including file counts. The bundle must contain exactly one `ClipboardSnapper.exe`.
+including file counts. The bundled artifact must contain exactly three files:
+`ClipboardSnapper.exe`, `lang/en.json` and `lang/ko.json`. Language files must not
+appear in its extracted runtime cache.
 These tests use a developer-equipped Windows hosted runner; a clean supported
 Windows PC and actual visible-window verification remain manual checks.
 

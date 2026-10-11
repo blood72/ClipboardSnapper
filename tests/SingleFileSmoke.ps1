@@ -4,9 +4,13 @@ Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
 
 $bundle = (Resolve-Path $BundlePath).Path
 $files = @(Get-ChildItem $bundle -Recurse -File -Force)
-if ($files.Count -ne 1 -or $files[0].Name -ne 'ClipboardSnapper.exe') {
-    throw 'The single-file artifact must contain exactly ClipboardSnapper.exe.'
+$expectedFiles = @('ClipboardSnapper.exe', 'lang/en.json', 'lang/ko.json')
+$relativeFiles = @($files | ForEach-Object { $_.FullName.Substring($bundle.Length + 1).Replace('\', '/') } | Sort-Object)
+if (($relativeFiles -join '|') -ne (($expectedFiles | Sort-Object) -join '|')) {
+    throw 'The bundled-runtime artifact must contain the EXE and two external language files only.'
 }
+$sourceExe = Join-Path $bundle 'ClipboardSnapper.exe'
+$sourceLanguageFolder = Join-Path $bundle 'lang'
 $fixture = Join-Path $env:RUNNER_TEMP ('ClipboardSnapper bundle 한글 ' + [Guid]::NewGuid().ToString('N'))
 $appFolder = Join-Path $fixture 'application'
 $cache = Join-Path $fixture 'runtime cache'
@@ -14,7 +18,7 @@ $working = Join-Path $fixture 'working directory'
 New-Item -ItemType Directory -Path $appFolder, $working | Out-Null
 $exe = Join-Path $appFolder 'ClipboardSnapper.exe'
 $config = Join-Path $appFolder 'config.ini'
-Copy-Item $files[0].FullName $exe
+Copy-Item $sourceExe $exe
 $oldCache = $env:DOTNET_BUNDLE_EXTRACT_BASE_DIR
 $oldHostTrace = $env:DOTNET_HOST_TRACE
 $oldHostTraceFile = $env:DOTNET_HOST_TRACEFILE
@@ -102,16 +106,35 @@ function Close-Bundle {
     $script:root = $null
 }
 try {
-    # Start with only the EXE, using a different working directory and an empty extraction cache.
+    # No language data is hidden in the EXE: an EXE-only installation fails with a useful dialog.
+    Start-BundleProcess
+    $deadline = [DateTime]::UtcNow.AddSeconds(40)
+    do {
+        $process.Refresh()
+        if ($process.HasExited) { throw 'Missing external English did not show a startup error dialog.' }
+        Start-Sleep -Milliseconds 100
+    } while ($process.MainWindowHandle -eq [IntPtr]::Zero -and [DateTime]::UtcNow -lt $deadline)
+    if ($process.MainWindowHandle -eq [IntPtr]::Zero) { throw 'Missing external English did not report a startup error.' }
+    $dialog = [System.Windows.Automation.AutomationElement]::FromHandle($process.MainWindowHandle)
+    $names = @($dialog.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+        [System.Windows.Automation.Condition]::TrueCondition) | ForEach-Object { $_.Current.Name }) -join ' '
+    if ($names -notmatch 'lang' -or $names -notmatch 'en.json') { throw "Missing-English diagnostic is not actionable: $names" }
+    ([System.Windows.Automation.WindowPattern]$dialog.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern)).Close()
+    if (-not $process.WaitForExit(15000) -or $process.ExitCode -eq 0) { throw 'Missing external English must exit with failure.' }
+    if (Test-Path $config) { throw 'Failed language initialization wrote configuration.' }
+    if (Test-Path (Join-Path $appFolder 'lang')) { throw 'The app unexpectedly generated translation files.' }
+    Copy-Item $sourceLanguageFolder (Join-Path $appFolder 'lang') -Recurse
+
+    # Start with the EXE and external lang folder, using a different working directory.
     Start-Bundle
     if ((Find-BundleControl 'MonitoringStatus').Current.Name -notin @('Ready', '준비됨')) { throw 'Bundled first launch started monitoring.' }
-    if (Test-Path (Join-Path $appFolder 'lang')) { throw 'Startup unexpectedly materialized external language packs.' }
+    if (@(Get-ChildItem $cache -Recurse -Directory -Filter lang).Count -ne 0) { throw 'Translation files were included in the runtime extraction cache.' }
     Close-Bundle
     Get-Content (Join-Path $fixture 'host-trace.txt') | Where-Object { $_ -match 'coreclr|CoreCLR|internal|runtime location' } | Select-Object -Last 15 | Write-Output
     $env:DOTNET_HOST_TRACE = $oldHostTrace
     $env:DOTNET_HOST_TRACEFILE = $oldHostTraceFile
 
-    # No external packs are needed for Korean; settings remain beside the original EXE.
+    # Korean comes exclusively from the editable pack; settings remain beside the original EXE.
     $imageFolder = Join-Path $fixture 'saved images'
     New-Item -ItemType Directory -Path $imageFolder | Out-Null
     $profileId = '11111111111111111111111111111111'
@@ -121,15 +144,37 @@ try {
     $preserved += "[Naming]`r`nFormula=$formula`r`nSelectedPreset=$profileId`r`n[NamingPresets]`r`nPreset.$profileId=$profileJson`r`n"
     [IO.File]::WriteAllText($config, $preserved, [Text.UTF8Encoding]::new($false))
     Start-Bundle
-    if ((Find-BundleControl 'StartButton').Current.Name -ne '시작') { throw 'Embedded Korean did not load without external language files.' }
+    if ((Find-BundleControl 'StartButton').Current.Name -ne '시작') { throw 'External Korean did not load beside the original EXE.' }
     Close-Bundle
     if ([IO.File]::ReadAllText($config) -ne $preserved) {
         throw "Restart changed an existing preference fixture. Actual: $([IO.File]::ReadAllText($config)). Expected: $preserved"
     }
 
+    # Editing, invalidating, removing and restoring Korean must never reveal a hidden built-in copy.
+    $koreanFile = Join-Path $appFolder 'lang/ko.json'
+    $originalKorean = [IO.File]::ReadAllText($koreanFile)
+    $editedKorean = $originalKorean.Replace('"Start": "시작"', '"Start": "외부 시작"')
+    [IO.File]::WriteAllText($koreanFile, $editedKorean, [Text.UTF8Encoding]::new($false))
+    Start-Bundle
+    if ((Find-BundleControl 'StartButton').Current.Name -ne '외부 시작') { throw 'Edited external Korean was ignored.' }
+    Close-Bundle
+    if ([IO.File]::ReadAllText($koreanFile) -ne $editedKorean) { throw 'The app overwrote the user translation file.' }
+    [IO.File]::WriteAllText($koreanFile, 'not-json')
+    Start-Bundle
+    if ((Find-BundleControl 'StartButton').Current.Name -ne 'Start') { throw 'Invalid Korean used a hidden built-in pack.' }
+    Close-Bundle
+    Remove-Item $koreanFile
+    Start-Bundle
+    if ((Find-BundleControl 'StartButton').Current.Name -ne 'Start' -or [IO.File]::ReadAllText($config) -ne $preserved) {
+        throw 'Removing Korean did not fall back to English while preserving the saved choice.'
+    }
+    Close-Bundle
+    if (Test-Path $koreanFile) { throw 'The app regenerated a deleted language file.' }
+    [IO.File]::WriteAllText($koreanFile, $originalKorean, [Text.UTF8Encoding]::new($false))
+
     # Delete only this test's stopped cache, replace the EXE, and repeat a cold launch.
     Remove-Item $cache -Recurse -Force
-    Copy-Item $files[0].FullName $exe -Force
+    Copy-Item $sourceExe $exe -Force
     Start-Bundle
     if ((Find-BundleControl 'StartButton').Current.Name -ne '시작' -or [IO.File]::ReadAllText($config) -ne $preserved) {
         throw 'Cache recreation or EXE replacement lost settings.'
@@ -160,8 +205,17 @@ try {
     # settings reload, image encoding and AppInstance forwarding/cold-start/shutdown races.
     & powershell.exe -NoProfile -STA -File (Join-Path $PSScriptRoot 'FeatureSmoke.ps1') -PublishPath $appFolder
     if ($LASTEXITCODE -ne 0) { throw "Bundled feature tests failed: $LASTEXITCODE" }
-    if (@(Get-ChildItem $appFolder -Recurse -File -Force).Count -ne 1) { throw 'Feature tests left unexpected files beside the bundle.' }
-    Write-Output "::notice::Single-file verified: $($files[0].Length) bytes; EXE-only cold/repeated launches, native runtimes from isolated cache, embedded Korean, spaces/non-ASCII/different working directory, cache recreation and replacement with portable settings, blocked-extraction diagnostic, and the complete feature/single-instance suite."
+    if (@(Get-ChildItem $appFolder -Recurse -File -Force).Count -ne 3) { throw 'Feature tests left unexpected files beside the bundle and lang folder.' }
+    Start-Bundle
+    Close-Bundle
+    $topLevel = @(Get-ChildItem $appFolder -Force | Select-Object -ExpandProperty Name | Sort-Object)
+    if (($topLevel -join '|') -ne 'ClipboardSnapper.exe|config.ini|lang') { throw "Unexpected portable layout: $topLevel" }
+    foreach ($code in @('en', 'ko')) {
+        if ((Get-FileHash (Join-Path $appFolder "lang/$code.json")).Hash -ne (Get-FileHash (Join-Path $sourceLanguageFolder "$code.json")).Hash) {
+            throw "The app changed the distributed $code translation file."
+        }
+    }
+    Write-Output "::notice::Single-file verified: $((Get-Item $sourceExe).Length) bytes; EXE/config.ini/lang layout, no embedded language data, missing-English startup diagnostic, editable/invalid/removed/restored Korean, cold/repeated launches, native runtimes from isolated cache, spaces/non-ASCII/different working directory, cache recreation and replacement with portable settings, blocked-extraction diagnostic, and the complete feature/single-instance suite."
 } finally {
     if ($null -ne $process -and -not $process.HasExited) {
         Stop-Process -Id $process.Id
