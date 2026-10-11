@@ -67,8 +67,8 @@ The scope follows the SDK's unpackaged application identity, not a machine-wide
 restriction. Repeated launches of the same executable are coordinated. Copies in
 other directories and other app versions are not promised to share an owner; keep
 their portable configuration and update lifecycles separate. Cross-user/session
-coordination is not claimed. Single-executable packaging and automatic updates
-remain separate features.
+coordination is not claimed. Both folder and single-file artifacts use this
+activation policy; automatic updates remain a separate feature.
 
 Implementation reference: [Microsoft's C# / WinUI 3 single-instance guide](https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/applifecycle/applifecycle-single-instance).
 
@@ -133,7 +133,10 @@ retain their Windows-provided language; file Details also keeps the original
 exception information. Repository documentation remains English.
 
 Translations are editable UTF-8 files in **`lang` beside `ClipboardSnapper.exe`**.
-The publish artifact includes `lang/en.json` and `lang/ko.json`. Add another
+The complete-folder artifact includes `lang/en.json` and `lang/ko.json`. The
+single-file artifact embeds both languages, so no external files are required.
+Create `lang` beside the original EXE to add or override packs; files in the
+runtime extraction cache are not user settings. Add another
 language-tag JSON file, such as `lang/ja.json`, then use **Reload settings** while
 stopped (or restart the app) to select it; no app rebuild is required. Translation
 files are read at startup and by Reload settings. Added, edited, removed or
@@ -141,7 +144,9 @@ invalidated files take effect on the next load; an unavailable saved
 language falls back to English with a warning. Missing translation keys use the
 current English file, then the embedded English baseline. Malformed JSON, duplicate
 keys, invalid language tags and incompatible placeholders are rejected per file;
-other language files remain usable. Embedded English handles absent external files.
+other language files remain usable. Embedded English and Korean remain available
+when their external packs are absent or invalid. A valid external pack overrides
+its built-in pack; missing keys still fall back to English.
 
 **Reload settings** reads configuration and language packs together while stopped;
 see the reload procedure below. There is no separate language-only reload command.
@@ -381,10 +386,13 @@ filter, queue management screen, tray integration, or automatic updater.
   Keep Windows updated and use an edition still in Microsoft support.
   Windows 10 is not included in this app's supported deployment targets.
 - An interactive desktop session. ARM64 and x86 builds are not included.
-- Keep every file and subfolder from the downloaded artifact together.
+- For the complete-folder artifact, keep every file and subfolder together.
+  The single-file artifact needs only its EXE and a writable runtime extraction
+  location. Saving preferences or custom packs beside the EXE requires a writable
+  application directory, as with the folder edition.
 
 The app is **unpackaged**: no MSIX installation, signing certificate, or Developer
-Mode is required. The publish folder includes the .NET runtime, Windows App SDK
+Mode is required. Both artifacts include the .NET runtime, Windows App SDK
 runtime, and app-local x64 Visual C++ runtime DLLs. Visual Studio and separate
 .NET, Windows App SDK, or Visual C++ runtime installations are not intended to be
 required. Windows-provided system components remain OS prerequisites.
@@ -398,13 +406,37 @@ visibility. Final desktop verification should be performed on the target PC.
 1. Open the repository's [Actions tab](https://github.com/blood72/ClipboardSnapper/actions).
 2. Select **Build Windows x64** and a successful run for the desired commit.
    To build manually, choose **Run workflow** on the `main` branch.
-3. Download the **ClipboardSnapper-win-x64** artifact from that run's summary.
-   GitHub requires sign-in to download Actions artifacts; artifacts expire after
-   14 days.
-4. Extract the **entire ZIP** into a folder. Do not run the app inside the ZIP or
-   copy only the executable.
-5. Open the extracted folder and run **ClipboardSnapper.exe**. The monitoring
-   screen opens in the **Ready** state; follow the usage steps above.
+3. Choose an artifact from that run's summary:
+
+   | Artifact | Contents | Run instructions |
+   | --- | --- | --- |
+   | **ClipboardSnapper-win-x64-single-file** | One bundled `ClipboardSnapper.exe`. | Retrieve the EXE from the downloaded ZIP and run it. No companion runtime files or manual dependency extraction are needed. |
+   | **ClipboardSnapper-win-x64** | The complete self-contained publish folder. | Extract the entire ZIP, keep all files/subfolders together, and run `ClipboardSnapper.exe`. |
+
+   GitHub requires sign-in and wraps Actions artifact downloads in ZIP files;
+   this download wrapper is separate from the app's single-file packaging.
+   Artifacts expire after 14 days. Both are development snapshots until the owner
+   declares the formal 1.0.0 release.
+4. The app opens in **Ready** with monitoring off. Keep an existing `config.ini`
+   and user `lang` folder beside the EXE when replacing it. Do not copy your
+   configuration into the runtime cache or overwrite it with test settings.
+
+### Single-file runtime extraction
+
+The bundled EXE uses the Windows App SDK's unpackaged single-file support. It
+extracts embedded dependencies automatically before the app starts; it is not a
+zero-extraction binary. .NET manages the cache below `%TEMP%\.net` by default,
+unless `DOTNET_BUNDLE_EXTRACT_BASE_DIR` is set. First launch or a missing cache
+requires extraction; subsequent launches can reuse it. Leave an active app's
+extracted files alone. Cache files can be recreated on a later launch after all
+instances have closed. Extraction needs disk space for the bundled dependencies;
+no installer, administrator privileges or registry setup is added.
+
+Persistent settings and optional user language packs always use the original
+EXE directory, independent of the working directory and extraction cache. English
+and Korean are embedded; create `lang` there only when adding/editing translations.
+Saved images continue to use the configured save folder. Automatic updates,
+compression, trimming and size/startup optimizations are not included.
 
 ## Build from source
 
@@ -424,30 +456,38 @@ Visual C++ redistributable DLLs used by CI; editing the source does not require
 Visual Studio. Run these commands from the repository root:
 
 ```powershell
-dotnet restore ClipboardSnapper/ClipboardSnapper.csproj --locked-mode -p:Platform=x64
-dotnet build ClipboardSnapper/ClipboardSnapper.csproj --configuration Release --no-restore -p:Platform=x64
-dotnet publish ClipboardSnapper/ClipboardSnapper.csproj --configuration Release --no-restore -p:Platform=x64 --output artifacts/publish
+$vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+$vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+$crt = (Get-ChildItem "$vs\VC\Redist\MSVC\*\x64\Microsoft.VC143.CRT" -Directory | Sort-Object FullName -Descending | Select-Object -First 1).FullName
+dotnet restore ClipboardSnapper/ClipboardSnapper.csproj --locked-mode -p:Platform=x64 -p:PublishSingleFile=true
+dotnet build ClipboardSnapper/ClipboardSnapper.csproj --configuration Release --no-restore -p:Platform=x64 "-p:VCRuntimeDirectory=$crt"
+dotnet publish ClipboardSnapper/ClipboardSnapper.csproj --configuration Release --no-restore -p:Platform=x64 "-p:VCRuntimeDirectory=$crt" --output artifacts/publish
+dotnet publish ClipboardSnapper/ClipboardSnapper.csproj --configuration Release --no-restore -p:Platform=x64 -p:PublishSingleFile=true "-p:VCRuntimeDirectory=$crt" --output artifacts/single-file
 ```
 
-To reproduce the complete downloadable folder, also perform the **Bundle Visual
-C++ runtime** step in [the workflow](.github/workflows/build.yml). A plain
-`dotnet publish` alone does not perform that extra app-local CRT copy. CI records
-the bundled CRT file versions; they come from the hosted runner's installed
-Visual Studio redistributable directory.
+`VCRuntimeDirectory` supplies the x64 CRT files **before** publication, so they
+are copied into the folder output and embedded in the single-file output. CI
+checks the required DLLs and records the runner's redistributable file versions.
+A publish without this property does not include those app-local CRT files and
+is not the complete downloadable distribution.
 
-Both `SelfContained` and `WindowsAppSDKSelfContained` are enabled. Single-file
-publishing, trimming, and ReadyToRun are disabled. NuGet dependencies are locked
-in `ClipboardSnapper/packages.lock.json`; Actions are pinned to commit SHAs.
-Dependency version pins do not freeze the hosted runner image.
+Both `SelfContained` and `WindowsAppSDKSelfContained` are enabled. Folder publishing
+is the default; the bundle sets `PublishSingleFile=true`,
+`IncludeAllContentForSelfExtract=true` and `IncludeNativeLibrariesForSelfExtract=true`.
+Debug symbols are embedded for the bundle. Trimming and ReadyToRun remain disabled.
+NuGet dependencies are locked in `ClipboardSnapper/packages.lock.json`; Actions
+are pinned to commit SHAs. Version pins do not freeze the hosted runner image.
 
-`EnableMsixTooling` enables the template's XAML/PRI resource build targets;
-`WindowsPackageType=None` keeps deployment unpackaged. Publish runs the incremental
-build targets so the app's resource index is included in the output folder.
+`EnableMsixTooling` enables the XAML/PRI resource targets and SDK single-file
+configuration checks; `WindowsPackageType=None` keeps deployment unpackaged.
+The SDK initializes native/resource lookup in the extraction directory. The app
+keeps portable user files at `Environment.ProcessPath`'s original directory.
+See [Microsoft's WinUI single-file guide](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/unpackage-winui-app#single-file-exe).
 
 ## CI validation
 
 The workflow runs on `windows-2022` for pull requests, pushes to `main` and manual dispatches.
-It restores locked dependencies, builds Release, publishes, bundles the CRT,
+It restores locked dependencies, builds Release, publishes with the CRT included,
 checks required output files and self-contained .NET configuration, and launches
 the published executable. The smoke test checks that the process remains alive,
 creates a main window handle, reports the expected title, and loads the .NET CLR
@@ -506,11 +546,20 @@ folder/profile confirmation and cancellation, external settings, repeated/read-o
 loads without rewriting, retained history/preview/totals/files/clipboard, accepted
 save options, pending-write/Clear coordination, language pack changes and Korean
 confirmation, and malformed/removed settings recovery.
-Both JSON files are required publish contents and included in artifact verification.
-The artifact is uploaded
-only after these checks pass. CI then downloads that artifact and compares
-every file's relative path and SHA-256 hash with the publish output, including a
-file-count check.
+Both JSON files are required folder-publish contents. CI also publishes the
+single-file EXE and starts it from an isolated folder initially containing only
+the EXE, with spaces/non-ASCII characters and a different working directory.
+An isolated extraction cache verifies app-local CLR, WinUI and CRT module paths.
+Cold/repeated launches, embedded Korean without external files, cache recreation,
+and EXE replacement preserving configuration are checked. The entire feature
+suite, including external language packs/reload and single-instance races, runs
+against the isolated bundled EXE as well as the folder output.
+
+Both artifacts are uploaded only after these checks pass. CI downloads each
+artifact and compares every relative file path and SHA-256 hash with its output,
+including file counts. The bundle must contain exactly one `ClipboardSnapper.exe`.
+These tests use a developer-equipped Windows hosted runner; a clean supported
+Windows PC and actual visible-window verification remain manual checks.
 
 Run deterministic session tests on any OS, or include real encoding on Windows:
 
