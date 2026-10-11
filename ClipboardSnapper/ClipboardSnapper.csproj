@@ -39,6 +39,17 @@
     <Content Include="$(VCRuntimeDirectory)\*.dll" Link="%(Filename)%(Extension)"
              CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
+  <!-- Keep editable packs external at the final publish-item boundary. -->
+  <Target Name="KeepLanguagePacksExternal" BeforeTargets="_ComputeFilesToBundle" Condition="'$(PublishSingleFile)' == 'true'">
+    <ItemGroup>
+      <ResolvedFileToPublish Update="@(ResolvedFileToPublish)"
+          Condition="'$([System.IO.Path]::GetDirectoryName('%(ResolvedFileToPublish.RelativePath)'))' == 'lang' and '%(ResolvedFileToPublish.Extension)' == '.json'">
+        <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+    <Message Importance="high" Text="External language publish item: %(ResolvedFileToPublish.RelativePath); ExcludeFromSingleFile=%(ResolvedFileToPublish.ExcludeFromSingleFile)"
+        Condition="'$([System.IO.Path]::GetDirectoryName('%(ResolvedFileToPublish.RelativePath)'))' == 'lang' and '%(ResolvedFileToPublish.Extension)' == '.json'" />
+  </Target>
   <Target Name="VerifyVisualCppRuntime" BeforeTargets="PrepareForPublish" Condition="'$(VCRuntimeDirectory)' != ''">
     <Error Condition="!Exists('$(VCRuntimeDirectory)\vcruntime140.dll') or !Exists('$(VCRuntimeDirectory)\vcruntime140_1.dll') or !Exists('$(VCRuntimeDirectory)\msvcp140.dll')"
            Text="VCRuntimeDirectory must contain the x64 Visual C++ runtime DLLs." />
