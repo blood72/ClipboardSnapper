@@ -21,7 +21,7 @@ function Assert-Forwarded($Launch, [int]$OwnerId, [IntPtr]$OwnerWindow) {
         throw 'Repeated launch replaced the existing application owner/window.'
     }
     $owners = @(Get-Process -Name ClipboardSnapper -ErrorAction SilentlyContinue |
-        Where-Object { $_.Path -eq (Join-Path $publish 'ClipboardSnapper.exe') })
+        Where-Object { $_.Path -eq (Join-Path $publish 'ClipboardSnapper.exe') -and $_.MainWindowHandle -ne [IntPtr]::Zero })
     if ($owners.Count -ne 1 -or $owners[0].Id -ne $OwnerId) { throw 'More than one application owner remained.' }
 }
 function Repeat-Launch {
