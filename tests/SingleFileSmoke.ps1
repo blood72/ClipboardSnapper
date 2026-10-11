@@ -114,7 +114,11 @@ try {
     # No external packs are needed for Korean; settings remain beside the original EXE.
     $imageFolder = Join-Path $fixture 'saved images'
     New-Item -ItemType Directory -Path $imageFolder | Out-Null
+    $profileId = '11111111111111111111111111111111'
+    $formula = 'Portable_${start=7;padding=4}'
+    $profileJson = [ordered]@{ Id = $profileId; Name = 'Portable profile'; Formula = $formula } | ConvertTo-Json -Compress
     $preserved = "; Keep settings across replacement`r`n[Appearance]`r`nLanguage=ko`r`n[Updates]`r`nEnabled=false`r`n[Storage]`r`nSaveFolder=$imageFolder`r`nImageFormat=PNG`r`nJpegQuality=90`r`n"
+    $preserved += "[Naming]`r`nFormula=$formula`r`nSelectedPreset=$profileId`r`n[NamingPresets]`r`nPreset.$profileId=$profileJson`r`n"
     [IO.File]::WriteAllText($config, $preserved, [Text.UTF8Encoding]::new($false))
     Start-Bundle
     if ((Find-BundleControl 'StartButton').Current.Name -ne '시작') { throw 'Embedded Korean did not load without external language files.' }
