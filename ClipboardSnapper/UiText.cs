@@ -15,7 +15,7 @@ public sealed record LanguageCatalog(IReadOnlyList<LanguageOption> Languages, IR
     public static LanguageCatalog Load(string folder)
     {
         var languages = new Dictionary<string, LanguageOption>(StringComparer.OrdinalIgnoreCase)
-        { ["en"] = UiText.EmbeddedEnglish, ["ko"] = UiText.EmbeddedKorean };
+        { ["en"] = UiText.StartupEnglish };
         var notices = new List<UiMessage>();
         var fileCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         try
@@ -27,37 +27,46 @@ public sealed record LanguageCatalog(IReadOnlyList<LanguageOption> Languages, IR
                     var code = Path.GetFileNameWithoutExtension(file);
                     if (!CodePattern.IsMatch(code)) throw UiMessage.InvalidData("InvalidLanguageTag");
                     if (!fileCodes.Add(code)) throw UiMessage.InvalidData("DuplicateLanguageTag");
-                    if (new FileInfo(file).Length > 1_048_576) throw UiMessage.InvalidData("LanguageFileTooLarge");
-                    using var json = JsonDocument.Parse(File.ReadAllText(file, new UTF8Encoding(false, true)));
-                    var root = json.RootElement;
-                    var name = root.GetProperty("languageName").GetString();
-                    if (string.IsNullOrWhiteSpace(name)) throw UiMessage.InvalidData("InvalidLanguageName");
-                    var strings = new Dictionary<string, string>(StringComparer.Ordinal);
-                    foreach (var entry in root.GetProperty("strings").EnumerateObject())
-                    {
-                        var value = entry.Value.GetString();
-                        if (string.IsNullOrWhiteSpace(value) || !strings.TryAdd(entry.Name, value))
-                            throw UiMessage.InvalidData("InvalidTranslationEntry");
-                        if (UiText.EnglishStrings.TryGetValue(entry.Name, out var english))
-                        {
-                            var expected = Placeholder.Matches(english).Select(m => m.Groups[1].Value).ToHashSet(StringComparer.Ordinal);
-                            var actual = Placeholder.Matches(value).Select(m => m.Groups[1].Value).ToHashSet(StringComparer.Ordinal);
-                            if (!expected.SetEquals(actual)) throw UiMessage.InvalidData("InvalidTranslationPlaceholder", entry.Name);
-                            if (expected.Count > 0) _ = CompositeFormat.Parse(value);
-                        }
-                    }
-                    languages[code] = new(code.Equals("en", StringComparison.OrdinalIgnoreCase) ? "en" : code, name, strings);
+                    languages[code] = ReadPack(file, code, UiText.EnglishStrings);
                 }
-                catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException or JsonException or
-                    InvalidOperationException or KeyNotFoundException or FormatException or DecoderFallbackException)
+                catch (Exception exception) when (IsPackError(exception))
                 { notices.Add(new("LanguageFileInvalid", file, UiMessage.FromException(exception))); }
             }
+            if (!fileCodes.Contains("en")) notices.Add(new("EnglishPackMissing", Path.Combine(folder, "en.json")));
         }
-        catch (DirectoryNotFoundException) { } // Optional packs need not exist beside a single-file app.
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         { notices.Add(new("LanguageFolderFailed", exception.Message)); }
         return new(languages.Values.OrderBy(l => l.Code, StringComparer.Ordinal).ToArray(), notices);
     }
+
+    internal static LanguageOption ReadPack(string file, string code, IReadOnlyDictionary<string, string>? baseline = null)
+    {
+        if (new FileInfo(file).Length > 1_048_576) throw UiMessage.InvalidData("LanguageFileTooLarge");
+        using var json = JsonDocument.Parse(File.ReadAllText(file, new UTF8Encoding(false, true)));
+        var root = json.RootElement;
+        var name = root.GetProperty("languageName").GetString();
+        if (string.IsNullOrWhiteSpace(name)) throw UiMessage.InvalidData("InvalidLanguageName");
+        var strings = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var entry in root.GetProperty("strings").EnumerateObject())
+        {
+            var value = entry.Value.GetString();
+            if (string.IsNullOrWhiteSpace(value) || !strings.TryAdd(entry.Name, value))
+                throw UiMessage.InvalidData("InvalidTranslationEntry");
+            var actual = Placeholder.Matches(value).Select(m => m.Groups[1].Value).ToHashSet(StringComparer.Ordinal);
+            if (baseline is not null && baseline.TryGetValue(entry.Name, out var english))
+            {
+                var expected = Placeholder.Matches(english).Select(m => m.Groups[1].Value).ToHashSet(StringComparer.Ordinal);
+                if (!expected.SetEquals(actual)) throw UiMessage.InvalidData("InvalidTranslationPlaceholder", entry.Name);
+            }
+            if (actual.Count > 0) _ = CompositeFormat.Parse(value);
+        }
+        if (strings.Count == 0) throw UiMessage.InvalidData("InvalidTranslationEntry");
+        return new(code.Equals("en", StringComparison.OrdinalIgnoreCase) ? "en" : code, name, strings);
+    }
+
+    internal static bool IsPackError(Exception exception) => exception is IOException or InvalidDataException or
+        UnauthorizedAccessException or JsonException or InvalidOperationException or KeyNotFoundException or
+        FormatException or DecoderFallbackException;
 
     public string Resolve(string? saved, string windowsLanguage)
     {
@@ -77,9 +86,17 @@ public sealed record LanguageCatalog(IReadOnlyList<LanguageOption> Languages, IR
 
 public sealed class UiText : INotifyPropertyChanged
 {
-    internal static LanguageOption EmbeddedEnglish { get; } = ReadEmbedded("en");
-    internal static LanguageOption EmbeddedKorean { get; } = ReadEmbedded("ko");
-    internal static IReadOnlyDictionary<string, string> EnglishStrings => EmbeddedEnglish.Strings;
+    private static LanguageOption? _startupEnglish;
+    internal static bool HasStartupEnglish => _startupEnglish is not null;
+    internal static LanguageOption StartupEnglish => _startupEnglish
+        ?? throw new InvalidOperationException("Load lang/en.json before starting the application.");
+    internal static IReadOnlyDictionary<string, string> EnglishStrings => StartupEnglish.Strings;
+
+    // Keep the successfully read startup file in memory for diagnostics and invalid-file recovery.
+    // Translation text is never embedded or written by the application.
+    internal static void InitializeEnglish(string folder) =>
+        _startupEnglish = LanguageCatalog.ReadPack(Path.Combine(folder, "en.json"), "en");
+
     public LanguageCatalog Catalog { get; private set; }
     public LanguageOption Language { get; private set; }
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -92,9 +109,11 @@ public sealed class UiText : INotifyPropertyChanged
         Language = catalog.Languages.First(l => l.Code == "en");
     }
     public string this[string key] => Language.Strings.TryGetValue(key, out var value) ? value :
-        Catalog.Languages.First(l => l.Code == "en").Strings.TryGetValue(key, out var english) ? english : EnglishStrings[key];
+        Catalog.Languages.First(l => l.Code == "en").Strings.TryGetValue(key, out var english) ? english : EnglishStrings.GetValueOrDefault(key, key);
     public string Format(string key, params object[] arguments) => FormatValue(this[key], arguments);
-    public static string English(string key, params object[] arguments) => FormatValue(EnglishStrings[key], arguments);
+    public static string English(string key, params object[] arguments) =>
+        _startupEnglish is not null && _startupEnglish.Strings.TryGetValue(key, out var value)
+            ? FormatValue(value, arguments) : key + (arguments.Length == 0 ? "" : ": " + string.Join(", ", arguments));
 
     public void ReplaceCatalog(LanguageCatalog catalog, string code)
     {
@@ -111,15 +130,6 @@ public sealed class UiText : INotifyPropertyChanged
     }
     private static string FormatValue(string template, object[] arguments) => arguments.Length == 0
         ? template : string.Format(CultureInfo.InvariantCulture, template, arguments);
-    private static LanguageOption ReadEmbedded(string code)
-    {
-        using var stream = typeof(UiText).Assembly.GetManifestResourceStream($"ClipboardSnapper.lang.{code}.json")
-            ?? throw new InvalidOperationException($"The embedded {code} translation is missing.");
-        using var document = JsonDocument.Parse(stream);
-        return new(code, document.RootElement.GetProperty("languageName").GetString()!,
-            document.RootElement.GetProperty("strings").EnumerateObject()
-                .ToDictionary(e => e.Name, e => e.Value.GetString()!, StringComparer.Ordinal));
-    }
 }
 
 public sealed record UiMessageList(IReadOnlyList<UiMessage> Messages);

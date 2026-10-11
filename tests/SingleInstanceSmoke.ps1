@@ -98,6 +98,16 @@ try {
     }
     [IO.File]::WriteAllText($config, $baselineConfig)
 
+    # A forwarding launch must activate the owner without reinitializing external language files.
+    $heldLanguages = Join-Path $testFolder 'held instance language files'
+    Move-Item (Join-Path $publish 'lang') $heldLanguages
+    try {
+        Repeat-Launch
+        if ((Find-Control 'StartButton').Current.Name -ne 'Start' -or (Read-Config) -ne $baselineConfig) {
+            throw 'Repeated activation depended on external language files or reset the loaded session.'
+        }
+    } finally { Move-Item $heldLanguages (Join-Path $publish 'lang') }
+
     $windowPattern = [System.Windows.Automation.WindowPattern]$root.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern)
     $normalBounds = [DesktopNative+Rect]::new()
     [void][DesktopNative]::GetWindowRect($ownerWindow, [ref]$normalBounds)

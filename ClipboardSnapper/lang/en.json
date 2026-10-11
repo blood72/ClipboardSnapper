@@ -1,6 +1,7 @@
 {
   "languageName": "English",
   "strings": {
+    "EnglishPackMissing": "The English language file is missing: {0}. Using the English file loaded at startup until it is restored.",
     "Ready": "Ready",
     "Monitoring": "Monitoring",
     "Stopped": "Stopped",

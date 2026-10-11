@@ -2,6 +2,7 @@ using ClipboardSnapper;
 
 try
 {
+    UiText.InitializeEnglish(Path.Combine(AppContext.BaseDirectory, "lang"));
     await SessionContracts.RunAsync();
     await QueueContracts.RunAsync();
     await PreferenceContracts.RunAsync();

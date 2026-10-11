@@ -28,6 +28,7 @@ internal static class Program
                     instance.Activated += OnActivated;
                     try
                     {
+                        UiText.InitializeEnglish(PortableConfig.LanguageDirectory);
                         Microsoft.UI.Xaml.Application.Start(_ =>
                         {
                             SynchronizationContext.SetSynchronizationContext(
@@ -66,11 +67,19 @@ internal static class Program
         catch (Exception exception)
         {
             Console.Error.WriteLine(exception);
-            var catalog = LanguageCatalog.Load(PortableConfig.LanguageDirectory);
-            var code = catalog.Resolve(null, CultureInfo.CurrentUICulture.Name);
-            var language = catalog.Languages.First(option => option.Code.Equals(code, StringComparison.OrdinalIgnoreCase));
-            var message = language.Strings.TryGetValue("SingleInstanceFailed", out var translated)
-                ? translated : UiText.EnglishStrings["SingleInstanceFailed"];
+            // Report startup failures even when the external English file cannot be read.
+            var message = "ClipboardSnapper could not start.";
+            try
+            {
+                if (!UiText.HasStartupEnglish) UiText.InitializeEnglish(PortableConfig.LanguageDirectory);
+                var catalog = LanguageCatalog.Load(PortableConfig.LanguageDirectory);
+                var code = catalog.Resolve(null, CultureInfo.CurrentUICulture.Name);
+                var language = catalog.Languages.First(option => option.Code.Equals(code, StringComparison.OrdinalIgnoreCase));
+                message = language.Strings.TryGetValue("SingleInstanceFailed", out var translated)
+                    ? translated : UiText.EnglishStrings.GetValueOrDefault("SingleInstanceFailed", message);
+            }
+            catch (Exception languageError) when (LanguageCatalog.IsPackError(languageError))
+            { message += " Keep the lang folder, including a valid en.json, beside ClipboardSnapper.exe."; }
             WindowActivation.ShowError(message + "\n\n" + exception.Message);
             return 1;
         }
