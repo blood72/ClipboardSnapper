@@ -4,6 +4,7 @@ try
 {
     UiText.InitializeEnglish(Path.Combine(AppContext.BaseDirectory, "lang"));
     await SessionContracts.RunAsync();
+    await ClipboardReadContracts.RunAsync();
     await QueueContracts.RunAsync();
     await PreferenceContracts.RunAsync();
     await ImagePreferenceContracts.RunAsync();
