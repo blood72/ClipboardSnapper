@@ -132,8 +132,8 @@ public sealed class ClipboardMonitor : IAsyncDisposable
             attempts++;
             operation = "Clipboard.GetContent";
             var content = Clipboard.GetContent();
-            // Confirm the view still belongs to the clipboard change that started this job.
-            if (sequence != 0 && GetClipboardSequenceNumber() != sequence)
+            // A retry must still target the original item after obtaining a fresh view.
+            if (attempts > 1 && GetClipboardSequenceNumber() != sequence)
                 throw UiMessage.Io("ClipboardChangedBeforeRead");
 
             operation = "DataPackageView.Contains(Bitmap)";
