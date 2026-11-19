@@ -15,9 +15,8 @@ public sealed class ClipboardMonitor : IAsyncDisposable
         new BoundedChannelOptions(256) { FullMode = BoundedChannelFullMode.DropOldest });
     private readonly List<Task> _pending = [];
     private readonly Task _writer;
-    private SaveOptions? _options;
+    private CaptureRun? _run;
     private uint _lastSequence;
-    private long _captureIndex;
     private int _reading;
     private bool _watching;
     private bool _disposed;
@@ -28,6 +27,12 @@ public sealed class ClipboardMonitor : IAsyncDisposable
     public QueueProgress Progress { get; } = new();
 
     private sealed record SaveWork(CapturedImage? Image, TaskCompletionSource? Barrier = null);
+
+    private sealed class CaptureRun(SaveOptions options)
+    {
+        public SaveOptions Options { get; } = options;
+        public long NextCaptureIndex { get; set; }
+    }
 
     public Task DrainAsync() => OnCaptureThreadAsync(async () =>
     {
@@ -41,8 +46,7 @@ public sealed class ClipboardMonitor : IAsyncDisposable
     public Task StartAsync(SaveOptions options) => OnCaptureThreadAsync(() =>
     {
         if (_watching) return Task.CompletedTask;
-        _options = options;
-        _captureIndex = 0;
+        _run = new(options);
         _lastSequence = GetClipboardSequenceNumber();
         Clipboard.ContentChanged += OnContentChanged;
         _watching = true;
@@ -65,12 +69,12 @@ public sealed class ClipboardMonitor : IAsyncDisposable
     {
         SynchronizationContext.SetSynchronizationContext(
             new DispatcherQueueSynchronizationContext(_controller.DispatcherQueue));
-        if (!_watching || _options is null) return;
+        if (!_watching || _run is not { } run) return;
         var sequence = GetClipboardSequenceNumber();
         if (sequence == _lastSequence) return;
         _lastSequence = sequence;
         // Stamp acceptance before any asynchronous clipboard read, including reads still pending at Clear.
-        var task = ReadImageAsync(_options, History.Generation, DateTimeOffset.Now);
+        var task = ReadImageAsync(sequence, run, History.Generation, DateTimeOffset.Now);
         _pending.Add(task);
         _ = ForgetCompletedAsync(task);
     }
@@ -81,41 +85,26 @@ public sealed class ClipboardMonitor : IAsyncDisposable
         _pending.Remove(task);
     }
 
-    private async Task ReadImageAsync(SaveOptions options, long generation, DateTimeOffset acceptedAt)
+    private async Task ReadImageAsync(uint sequence, CaptureRun run, long generation, DateTimeOffset acceptedAt)
     {
-        var entered = false;
         var queued = false;
         var rejected = false;
+        long? captureIndex = null;
+        var attempts = 0;
+        var operation = "Clipboard.GetContent";
+        var options = run.Options;
         var progressId = Progress.BeginRead(generation, acceptedAt, options);
         try
         {
-            var content = Clipboard.GetContent();
-            if (!content.Contains(StandardDataFormats.Bitmap)) { Progress.IgnoreRead(progressId); return; }
-            var captureIndex = _captureIndex++;
-            if (_reading >= 2)
+            var bytes = await ClipboardReadRetry.ReadAsync(sequence, GetClipboardSequenceNumber, ReadBytesAsync);
+            if (bytes is null)
             {
-                rejected = true;
-                throw UiMessage.Io("ClipboardTooFast");
+                Progress.IgnoreRead(progressId);
+                return;
             }
-            _reading++;
-            entered = true;
-            var bitmap = await content.GetBitmapAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10));
-            using var source = await bitmap.OpenReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10));
-            if (source.Size > MaximumBytes)
-                throw UiMessage.InvalidData("ClipboardTooLarge");
-            using var stream = source.AsStreamForRead();
-            using var bytes = new MemoryStream();
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-            var buffer = new byte[81920];
-            int count;
-            while ((count = await stream.ReadAsync(buffer, timeout.Token)) != 0)
-            {
-                if (bytes.Length + count > MaximumBytes)
-                    throw UiMessage.InvalidData("ClipboardTooLarge");
-                bytes.Write(buffer, 0, count);
-            }
-            var image = new CapturedImage(bytes.ToArray(), options, generation)
-                { AcceptedAt = acceptedAt, CaptureIndex = captureIndex, ProgressId = progressId };
+
+            var image = new CapturedImage(bytes, options, generation)
+                { AcceptedAt = acceptedAt, CaptureIndex = captureIndex!.Value, ProgressId = progressId };
             // Reserve the waiting count before publishing: the writer may dequeue immediately.
             Progress.QueueRead(progressId);
             queued = true;
@@ -124,12 +113,68 @@ public sealed class ClipboardMonitor : IAsyncDisposable
         }
         catch (Exception exception)
         {
-            var result = new SaveResult(options.Folder, DateTimeOffset.Now, false,
-                $"{exception.GetType().Name}: {exception.Message}", Generation: generation) { ErrorMessage = UiMessage.FromException(exception) };
+            var failureStage = queued || rejected ? QueueStage.Rejected : QueueStage.ReadFailed;
+            var details = failureStage == QueueStage.ReadFailed
+                ? $"{operation} (attempt {attempts}): {exception.GetType().Name}, HRESULT 0x{exception.HResult:X8}"
+                : exception.GetType().Name;
+            if (!string.IsNullOrWhiteSpace(exception.Message)) details += $": {exception.Message}";
+            var result = new SaveResult(options.Folder, DateTimeOffset.Now, false, details, Generation: generation)
+            {
+                FailureStage = failureStage,
+                ErrorMessage = ClipboardReadRetry.IsInteropError(exception) || string.IsNullOrWhiteSpace(exception.Message)
+                    ? new("ClipboardReadError") : UiMessage.FromException(exception)
+            };
             if (queued) Progress.RejectQueued(progressId, result); else Progress.FailRead(progressId, rejected, result);
             PublishResult(result);
         }
-        finally { if (entered) _reading--; }
+        async Task<byte[]?> ReadBytesAsync()
+        {
+            attempts++;
+            operation = "Clipboard.GetContent";
+            var content = Clipboard.GetContent();
+            // A retry must still target the original item after obtaining a fresh view.
+            if (attempts > 1 && GetClipboardSequenceNumber() != sequence)
+                throw UiMessage.Io("ClipboardChangedBeforeRead");
+
+            operation = "DataPackageView.Contains(Bitmap)";
+            if (!content.Contains(StandardDataFormats.Bitmap))
+            {
+                if (captureIndex.HasValue) throw UiMessage.Io("ClipboardImageUnavailable");
+                return null;
+            }
+            captureIndex ??= run.NextCaptureIndex++;
+            if (_reading >= 2)
+            {
+                rejected = true;
+                throw UiMessage.Io("ClipboardTooFast");
+            }
+
+            // Only active acquisitions use a slot. Waiting to retry leaves room for new captures.
+            _reading++;
+            try
+            {
+                operation = "DataPackageView.GetBitmapAsync";
+                var bitmap = await content.GetBitmapAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10));
+                operation = "RandomAccessStreamReference.OpenReadAsync";
+                using var source = await bitmap.OpenReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10));
+                operation = "Read clipboard image stream";
+                if (source.Size > MaximumBytes)
+                    throw UiMessage.InvalidData("ClipboardTooLarge");
+                using var stream = source.AsStreamForRead();
+                using var bytes = new MemoryStream();
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                var buffer = new byte[81920];
+                int count;
+                while ((count = await stream.ReadAsync(buffer, timeout.Token)) != 0)
+                {
+                    if (bytes.Length + count > MaximumBytes)
+                        throw UiMessage.InvalidData("ClipboardTooLarge");
+                    bytes.Write(buffer, 0, count);
+                }
+                return bytes.ToArray();
+            }
+            finally { _reading--; }
+        }
     }
 
     private async Task WriteImagesAsync()

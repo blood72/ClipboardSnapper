@@ -379,8 +379,9 @@ preview loads cannot repopulate the screen or overwrite a newer preview.
 Internal buffers are bounded. If images arrive faster than they can be read or
 saved, the app reports a failure rather than silently discarding a capture.
 Individual clipboard streams are limited to 128 MB and decoded images to 64
-megapixels. Clipboard providers can invalidate data before it is read; a read
-failure is reported with instructions to copy again. There is no app-specific
+megapixels. Clipboard interop errors are retried up to four times while the
+original clipboard content is still current. **Read failed** details show the
+failed operation and HRESULT. There is no app-specific
 filter, queue management screen, tray integration, or automatic updater.
 
 ## Requirements

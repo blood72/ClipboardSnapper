@@ -736,7 +736,7 @@ public sealed partial class MainWindow : Window
             _history.Insert(0, new HistoryItem(result, _text));
             if (_history.Count > 100) _history.RemoveAt(_history.Count - 1);
             EmptyHistory.Visibility = Visibility.Collapsed;
-            ShowResult(result.Success ? "ImageSaved" : "SaveFailed",
+            ShowResult(result.Success ? "ImageSaved" : result.FailureTitleKey,
                 result.Success ? new("Raw", result.FilePath) : result.ErrorMessage ?? new("Raw", result.Error),
                 result.Success ? InfoBarSeverity.Success : InfoBarSeverity.Error, result.Generation);
         }
@@ -833,7 +833,7 @@ public sealed partial class MainWindow : Window
         var dialog = new ContentDialog
         {
             XamlRoot = RootGrid.XamlRoot,
-            Title = _text[item.Result.Success ? "SavedImage" : "SaveFailed"],
+            Title = _text[item.Result.Success ? "SavedImage" : item.Result.FailureTitleKey],
             Content = new TextBlock
             {
                 Text = string.Create(CultureInfo.InvariantCulture, $"{item.Result.FilePath}\n\n{item.Result.Time:yyyy-MM-dd HH:mm:ss zzz}\n\n") +
@@ -898,7 +898,7 @@ public sealed class HistoryItem(SaveResult result, UiText text) : INotifyPropert
     public string Name => Path.GetExtension(Result.FilePath) is ".png" or ".jpg" or ".bmp"
         ? Path.GetFileName(Result.FilePath) : text["ClipboardImage"];
     public string Time => Result.Time.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
-    public string Status => text[Result.Success ? "Saved" : "Failed"];
+    public string Status => text[Result.Success ? "Saved" : Result.FailureStage.HasValue ? Result.FailureTitleKey : "Failed"];
     public string Summary => Result.Success ? Result.FilePath : (Result.ErrorMessage ?? new UiMessage("Raw", Result.Error)).Render(text);
     public SolidColorBrush StatusBrush => new(Result.Success ? Microsoft.UI.Colors.ForestGreen : Microsoft.UI.Colors.IndianRed);
 }

@@ -18,4 +18,11 @@ public sealed record SaveResult(string FilePath, DateTimeOffset Time, bool Succe
     string Error = "", uint Width = 0, uint Height = 0, long Generation = 0)
 {
     public UiMessage? ErrorMessage { get; init; }
+    internal QueueStage? FailureStage { get; init; }
+    internal string FailureTitleKey => FailureStage switch
+    {
+        QueueStage.ReadFailed => "QueueReadFailed",
+        QueueStage.Rejected => "QueueRejected",
+        _ => "SaveFailed"
+    };
 }
